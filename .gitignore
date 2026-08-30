@@ -1,0 +1,3 @@
+# compiled binaries and distribution zips are built locally (see README.md)
+dist/*
+!dist/README.txt

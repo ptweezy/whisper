@@ -1,0 +1,2871 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relay — REST Client</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5bd6'/%3E%3Ctext x='16' y='23' font-family='Arial,sans-serif' font-size='19' font-weight='800' fill='white' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+<style>
+  /* ============ Design tokens ============ */
+  :root, [data-theme="light"] {
+    --bg: #f4f5f7;
+    --bg-panel: #ffffff;
+    --bg-inset: #eceef1;
+    --bg-hover: #e7e9ee;
+    --bg-active: #dfe3ea;
+    --border: #d8dce3;
+    --border-strong: #c3c9d4;
+    --text: #1c2333;
+    --text-muted: #6b7386;
+    --text-faint: #9aa1b3;
+    --accent: #5b5bd6;
+    --accent-hover: #4a4ac4;
+    --accent-soft: #ebebfa;
+    --danger: #d64545;
+    --danger-soft: #fbeaea;
+    --ok: #2e9e5b;
+    --warn: #d98a1f;
+    --shadow: 0 4px 24px rgba(20, 24, 40, .10);
+    --shadow-sm: 0 1px 3px rgba(20, 24, 40, .08);
+    --radius: 8px;
+    --radius-sm: 6px;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+
+    --m-get: #2e9e5b;  --m-post: #d98a1f; --m-put: #2f7fd1;
+    --m-patch: #14a3a3; --m-delete: #d64545; --m-head: #8a63c9; --m-options: #6b7386;
+
+    --tok-key: #a4467f; --tok-str: #2e7d4f; --tok-num: #2f6fd1; --tok-bool: #b05716; --tok-null: #8a63c9;
+  }
+  [data-theme="dark"] {
+    --bg: #16181d;
+    --bg-panel: #1e2128;
+    --bg-inset: #14161b;
+    --bg-hover: #262a33;
+    --bg-active: #2d323d;
+    --border: #2c313b;
+    --border-strong: #3a4150;
+    --text: #e4e7ee;
+    --text-muted: #9aa1b3;
+    --text-faint: #646c7f;
+    --accent: #7b7bf0;
+    --accent-hover: #9292f5;
+    --accent-soft: #2a2a45;
+    --danger: #e06666;
+    --danger-soft: #3a2528;
+    --ok: #4fbf7f;
+    --warn: #e0a34a;
+    --shadow: 0 6px 28px rgba(0, 0, 0, .45);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, .3);
+
+    --m-get: #4fbf7f;  --m-post: #e0a34a; --m-put: #5da2e8;
+    --m-patch: #3fc1c1; --m-delete: #e06666; --m-head: #a98ae0; --m-options: #9aa1b3;
+
+    --tok-key: #e08bbd; --tok-str: #7fd49e; --tok-num: #7fb0f0; --tok-bool: #e0a06a; --tok-null: #b79ae8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--sans);
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    overflow: hidden;
+  }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+  input, select, textarea { font: inherit; color: var(--text); }
+  ::placeholder { color: var(--text-faint); }
+
+  #app { display: flex; height: 100vh; }
+
+  /* ============ Sidebar ============ */
+  #sidebar {
+    width: 280px; min-width: 280px;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+  .sb-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px 10px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 700; font-size: 15px; letter-spacing: .2px;
+    flex: 1;
+  }
+  .brand-mark {
+    width: 24px; height: 24px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), #9a5bd6);
+    display: grid; place-items: center;
+    color: #fff; font-size: 13px; font-weight: 800;
+  }
+  .icon-btn {
+    width: 28px; height: 28px; border-radius: var(--radius-sm);
+    display: grid; place-items: center;
+    color: var(--text-muted);
+  }
+  .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  .sb-env {
+    display: flex; gap: 6px; padding: 0 14px 10px; align-items: center;
+  }
+  .sb-env select {
+    flex: 1; min-width: 0;
+    background: var(--bg-inset); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 5px 8px; outline: none;
+  }
+  .sb-env select:focus { border-color: var(--accent); }
+
+  .sb-tabs {
+    display: flex; padding: 0 14px; gap: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-tab {
+    padding: 7px 10px; color: var(--text-muted); font-weight: 600;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .sb-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .sb-tab:hover:not(.active) { color: var(--text); }
+
+  .sb-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px 4px;
+  }
+  .sb-toolbar .label { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-faint); font-weight: 700; }
+  .text-btn {
+    color: var(--accent); font-weight: 600; font-size: 12px;
+    padding: 3px 6px; border-radius: var(--radius-sm);
+  }
+  .text-btn:hover { background: var(--accent-soft); }
+  .text-btn.danger { color: var(--danger); }
+  .text-btn.danger:hover { background: var(--danger-soft); }
+
+  .sb-content { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+
+  .empty-state {
+    padding: 28px 16px; text-align: center; color: var(--text-faint);
+    font-size: 12.5px; line-height: 1.6;
+  }
+
+  .col-folder { margin-bottom: 2px; }
+  .col-folder-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 6px; border-radius: var(--radius-sm);
+    cursor: pointer; user-select: none;
+  }
+  .col-folder-head:hover { background: var(--bg-hover); }
+  .col-folder-head .chev { color: var(--text-faint); font-size: 10px; width: 12px; transition: transform .15s; }
+  .col-folder.open .chev { transform: rotate(90deg); }
+  .col-folder-head .fname { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .col-folder-head .count { color: var(--text-faint); font-size: 11px; }
+  .col-folder-head .row-del { visibility: hidden; }
+  .col-folder-head:hover .row-del { visibility: visible; }
+  .col-reqs { display: none; }
+  .col-folder.open .col-reqs { display: block; }
+
+  .req-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 6px 5px 24px; border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .req-item:hover { background: var(--bg-hover); }
+  .req-item .rname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .req-item .row-del { visibility: hidden; }
+  .req-item:hover .row-del { visibility: visible; }
+  .row-del {
+    color: var(--text-faint); width: 20px; height: 20px; border-radius: 4px;
+    display: grid; place-items: center; font-size: 13px; flex: none;
+  }
+  .row-del:hover { color: var(--danger); background: var(--danger-soft); }
+
+  .method-chip {
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    width: 44px; flex: none; text-align: left;
+  }
+  .m-GET { color: var(--m-get); } .m-POST { color: var(--m-post); }
+  .m-PUT { color: var(--m-put); } .m-PATCH { color: var(--m-patch); }
+  .m-DELETE { color: var(--m-delete); } .m-HEAD { color: var(--m-head); }
+  .m-OPTIONS { color: var(--m-options); }
+
+  .hist-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 6px; border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .hist-item:hover { background: var(--bg-hover); }
+  .hist-main { flex: 1; min-width: 0; }
+  .hist-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-family: var(--mono); }
+  .hist-meta { font-size: 10.5px; color: var(--text-faint); margin-top: 1px; }
+  .hist-item .row-del { visibility: hidden; }
+  .hist-item:hover .row-del { visibility: visible; }
+  .hist-status { font-family: var(--mono); font-size: 10.5px; font-weight: 700; }
+
+  .sb-footer {
+    border-top: 1px solid var(--border);
+    padding: 8px 14px; display: flex; gap: 6px;
+  }
+  .sb-footer .text-btn { flex: 1; text-align: center; color: var(--text-muted); }
+  .sb-footer .text-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+  #engine-chip {
+    padding: 0 14px 10px; font-size: 11px; color: var(--text-faint);
+    display: flex; align-items: center; gap: 6px; cursor: default;
+  }
+  #engine-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); flex: none; }
+  #engine-chip.native { color: var(--text-muted); }
+  #engine-chip.native .dot { background: var(--ok); }
+
+  /* ============ Main ============ */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  #tabbar {
+    display: flex; align-items: flex-end; gap: 2px;
+    padding: 8px 10px 0;
+    background: var(--bg);
+    overflow-x: auto; scrollbar-width: thin;
+    flex: none;
+  }
+  .rtab {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 10px 7px 12px;
+    background: transparent;
+    border: 1px solid transparent; border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
+    color: var(--text-muted); cursor: pointer;
+    max-width: 190px; min-width: 0; flex: none;
+    font-size: 12.5px; user-select: none;
+  }
+  .rtab.active {
+    background: var(--bg-panel); border-color: var(--border);
+    color: var(--text);
+  }
+  .rtab:hover:not(.active) { background: var(--bg-hover); }
+  .rtab .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rtab .method-chip { width: auto; }
+  .tab-close {
+    width: 16px; height: 16px; border-radius: 4px; flex: none;
+    display: grid; place-items: center; font-size: 12px; color: var(--text-faint);
+  }
+  .tab-close:hover { background: var(--bg-active); color: var(--text); }
+  .tab-new {
+    width: 28px; height: 28px; flex: none; margin-bottom: 2px;
+    border-radius: var(--radius-sm); color: var(--text-muted);
+    display: grid; place-items: center; font-size: 16px;
+  }
+  .tab-new:hover { background: var(--bg-hover); color: var(--text); }
+
+  #workspace {
+    flex: 1; min-height: 0;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+
+  /* URL row */
+  .url-row { display: flex; gap: 8px; padding: 12px 14px 10px; flex: none; }
+  .url-join {
+    display: flex; flex: 1; min-width: 0;
+    border: 1px solid var(--border-strong); border-radius: var(--radius);
+    background: var(--bg-inset); overflow: hidden;
+  }
+  .url-join:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  #method-select {
+    border: none; outline: none; background: transparent;
+    font-family: var(--mono); font-weight: 700; font-size: 12.5px;
+    padding: 0 6px 0 12px; cursor: pointer;
+    -webkit-appearance: none; appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%), linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+    background-position: calc(100% - 11px) 50%, calc(100% - 7px) 50%;
+    background-size: 4px 4px; background-repeat: no-repeat;
+    padding-right: 22px;
+  }
+  #method-select option { background: var(--bg-panel); color: var(--text); font-weight: 600; }
+  .url-sep { width: 1px; background: var(--border); margin: 7px 0; }
+  #url-input {
+    flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+    padding: 9px 12px; font-family: var(--mono); font-size: 12.5px;
+  }
+  .btn {
+    padding: 8px 16px; border-radius: var(--radius); font-weight: 700;
+    display: inline-flex; align-items: center; gap: 7px; flex: none;
+    border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary.sending { background: var(--danger); }
+  .btn-ghost { border-color: var(--border-strong); color: var(--text-muted); background: var(--bg-panel); }
+  .btn-ghost:hover { color: var(--text); background: var(--bg-hover); }
+  .btn svg { width: 13px; height: 13px; }
+
+  /* Request config tabs */
+  .req-tabs {
+    display: flex; gap: 2px; padding: 0 14px; flex: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .req-tab {
+    padding: 7px 11px; color: var(--text-muted); font-weight: 600; font-size: 12.5px;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .req-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .req-tab:hover:not(.active) { color: var(--text); }
+  .req-tab .badge {
+    background: var(--bg-active); color: var(--text-muted);
+    font-size: 10px; font-weight: 700; border-radius: 8px;
+    padding: 1px 6px; min-width: 16px; text-align: center;
+  }
+  .req-tab.active .badge { background: var(--accent-soft); color: var(--accent); }
+
+  #req-body-area {
+    height: 220px; min-height: 64px; overflow-y: auto;
+    padding: 10px 14px; flex: none;
+  }
+
+  /* Key-value editor */
+  .kv-table { display: flex; flex-direction: column; gap: 4px; }
+  .kv-row { display: flex; gap: 6px; align-items: center; }
+  .kv-row input[type="checkbox"] {
+    width: 14px; height: 14px; accent-color: var(--accent); flex: none; cursor: pointer;
+  }
+  .kv-row .kv-in {
+    flex: 1; min-width: 0;
+    background: var(--bg-inset); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 9px;
+    font-family: var(--mono); font-size: 12px; outline: none;
+  }
+  .kv-row .kv-in:focus { border-color: var(--accent); }
+  .kv-row.disabled .kv-in { opacity: .45; }
+  .kv-row.ghost .kv-in { border-style: dashed; }
+  .kv-row select.kv-type {
+    background: var(--bg-inset); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 5px 4px; font-size: 11.5px; outline: none; flex: none;
+  }
+  .kv-file-label {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+    background: var(--bg-inset); border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-sm); padding: 5px 9px; cursor: pointer;
+    font-size: 12px; color: var(--text-muted);
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
+  .kv-file-label:hover { border-color: var(--accent); color: var(--text); }
+  .kv-file-label input { display: none; }
+
+  .body-type-row { display: flex; gap: 4px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
+  .seg {
+    display: inline-flex; background: var(--bg-inset);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 2px; gap: 2px;
+  }
+  .seg button {
+    padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600;
+    color: var(--text-muted);
+  }
+  .seg button.active { background: var(--bg-panel); color: var(--text); box-shadow: var(--shadow-sm); }
+  .seg button:hover:not(.active) { color: var(--text); }
+
+  .code-editor {
+    width: 100%; min-height: 120px; resize: vertical;
+    background: var(--bg-inset); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 10px 12px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    outline: none; tab-size: 2;
+  }
+  .code-editor:focus { border-color: var(--accent); }
+  .body-note {
+    color: var(--text-faint); font-size: 12px; padding: 8px 2px;
+  }
+  .json-error { color: var(--danger); font-size: 11.5px; padding: 5px 2px; font-family: var(--mono); }
+  .json-ok { color: var(--ok); font-size: 11.5px; padding: 5px 2px; }
+
+  /* Auth */
+  .auth-grid { display: grid; grid-template-columns: 110px 1fr; gap: 10px 12px; align-items: center; max-width: 560px; }
+  .auth-grid label { color: var(--text-muted); font-weight: 600; font-size: 12px; }
+  .auth-grid input, .auth-grid select {
+    background: var(--bg-inset); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 6px 9px; outline: none;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .auth-grid input:focus, .auth-grid select:focus { border-color: var(--accent); }
+  .auth-hint { grid-column: 1 / -1; color: var(--text-faint); font-size: 11.5px; }
+
+  /* Divider */
+  #divider {
+    height: 5px; flex: none; cursor: row-resize;
+    background: var(--bg); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  #divider::after {
+    content: ""; position: absolute; left: 50%; top: 1px;
+    width: 36px; height: 3px; transform: translateX(-50%);
+    background: var(--border-strong); border-radius: 2px;
+  }
+  #divider:hover::after { background: var(--accent); }
+
+  /* Response */
+  #response-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg-panel); }
+  .resp-empty {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--text-faint); gap: 10px;
+  }
+  .resp-empty .kbd-hint { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  kbd {
+    font-family: var(--mono); font-size: 10.5px;
+    background: var(--bg-inset); border: 1px solid var(--border-strong);
+    border-bottom-width: 2px; border-radius: 4px; padding: 2px 6px;
+  }
+  .resp-statusbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 14px; border-bottom: 1px solid var(--border); flex: none;
+    flex-wrap: wrap;
+  }
+  .status-chip {
+    font-family: var(--mono); font-weight: 700; font-size: 12px;
+    padding: 3px 9px; border-radius: 20px;
+  }
+  .status-2xx { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .status-3xx { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .status-4xx { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .status-5xx, .status-err { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .resp-meta { color: var(--text-muted); font-size: 12px; font-family: var(--mono); }
+  .resp-meta b { color: var(--text); font-weight: 600; }
+  .resp-actions { margin-left: auto; display: flex; gap: 4px; }
+
+  .resp-tabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--border); flex: none; align-items: center; }
+  .resp-body-wrap { flex: 1; min-height: 0; overflow: auto; }
+  .resp-pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+    padding: 12px 16px; white-space: pre-wrap; word-break: break-word;
+    min-height: 100%;
+  }
+  .tok-key { color: var(--tok-key); } .tok-str { color: var(--tok-str); }
+  .tok-num { color: var(--tok-num); } .tok-bool { color: var(--tok-bool); } .tok-null { color: var(--tok-null); }
+
+  .resp-headers-table { width: 100%; border-collapse: collapse; }
+  .resp-headers-table td {
+    padding: 6px 16px; border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 12px; vertical-align: top; word-break: break-all;
+  }
+  .resp-headers-table td:first-child { color: var(--text-muted); width: 240px; font-weight: 600; }
+
+  .resp-error-card {
+    margin: 18px auto; max-width: 620px;
+    background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  .resp-error-card h3 { color: var(--danger); font-size: 13.5px; margin-bottom: 6px; }
+  .resp-error-card p { color: var(--text-muted); font-size: 12.5px; line-height: 1.6; }
+  .resp-error-card code { font-family: var(--mono); font-size: 11.5px; background: var(--bg-inset); padding: 1px 5px; border-radius: 4px; }
+
+  .preview-frame { width: 100%; height: 100%; border: none; background: #fff; }
+  .preview-img-wrap { padding: 16px; display: flex; justify-content: center; }
+  .preview-img-wrap img { max-width: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow-sm); }
+
+  .trunc-note {
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    color: var(--warn); padding: 8px 16px; font-size: 12px; font-weight: 600;
+  }
+
+  /* ============ Modals ============ */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(10, 12, 18, .5);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding-top: 9vh; z-index: 100;
+    backdrop-filter: blur(2px);
+  }
+  .modal {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--shadow);
+    width: min(640px, calc(100vw - 40px));
+    max-height: 80vh; display: flex; flex-direction: column;
+  }
+  .modal.wide { width: min(820px, calc(100vw - 40px)); }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .modal-head h2 { font-size: 14px; }
+  .modal-body { padding: 16px 18px; overflow-y: auto; }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 18px; border-top: 1px solid var(--border);
+  }
+  .form-row { margin-bottom: 14px; }
+  .form-row label { display: block; font-weight: 600; font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+  .form-row input[type="text"], .form-row select, .form-row textarea {
+    width: 100%; background: var(--bg-inset); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 8px 10px; outline: none;
+  }
+  .form-row input:focus, .form-row select:focus, .form-row textarea:focus { border-color: var(--accent); }
+  .form-row textarea { font-family: var(--mono); font-size: 12px; min-height: 130px; resize: vertical; }
+
+  .codegen-pre {
+    background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px 14px; font-family: var(--mono); font-size: 12px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-all; max-height: 46vh; overflow-y: auto;
+  }
+
+  .env-layout { display: flex; gap: 14px; min-height: 300px; }
+  .env-list { width: 190px; flex: none; border-right: 1px solid var(--border); padding-right: 12px; }
+  .env-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 2px;
+  }
+  .env-item:hover { background: var(--bg-hover); }
+  .env-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .env-item .ename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .env-item .row-del { visibility: hidden; }
+  .env-item:hover .row-del { visibility: visible; }
+  .env-vars { flex: 1; min-width: 0; }
+
+  /* Toasts */
+  #toasts {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    display: flex; flex-direction: column; gap: 8px; z-index: 200; align-items: center;
+  }
+  .toast {
+    background: var(--bg-panel); border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow); border-radius: var(--radius);
+    padding: 9px 16px; font-size: 12.5px; font-weight: 600;
+    display: flex; gap: 8px; align-items: center;
+    animation: toast-in .18s ease-out;
+  }
+  .toast.err { border-color: var(--danger); color: var(--danger); }
+  .toast.ok::before { content: "✓"; color: var(--ok); font-weight: 800; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--text-faint); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .rtab:focus-visible, .col-folder-head:focus-visible, .req-item:focus-visible,
+  .hist-item:focus-visible, .env-item:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -2px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- ================= Sidebar ================= -->
+  <aside id="sidebar">
+    <div class="sb-header">
+      <div class="brand"><span class="brand-mark">R</span> Relay</div>
+      <button class="icon-btn" id="btn-theme" title="Toggle theme"></button>
+      <button class="icon-btn" id="btn-settings" title="Settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
+      </button>
+    </div>
+    <div class="sb-env">
+      <select id="env-select" title="Active environment"></select>
+      <button class="icon-btn" id="btn-envs" title="Manage environments">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M11.3 2.3a1.6 1.6 0 0 1 2.3 2.3L5.5 12.7l-3 .8.8-3z"/></svg>
+      </button>
+    </div>
+    <div class="sb-tabs">
+      <button class="sb-tab active" data-sbtab="collections">Collections</button>
+      <button class="sb-tab" data-sbtab="history">History</button>
+    </div>
+    <div class="sb-toolbar" id="sb-toolbar"></div>
+    <div class="sb-content" id="sb-content"></div>
+    <div class="sb-footer">
+      <button class="text-btn" id="btn-import">Import</button>
+      <button class="text-btn" id="btn-export">Export</button>
+    </div>
+    <div id="engine-chip"><span class="dot"></span><span id="engine-label">Browser mode</span></div>
+  </aside>
+
+  <!-- ================= Main ================= -->
+  <main id="main">
+    <div id="tabbar"></div>
+    <div id="workspace">
+      <div class="url-row">
+        <div class="url-join">
+          <select id="method-select">
+            <option>GET</option><option>POST</option><option>PUT</option>
+            <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+          </select>
+          <div class="url-sep"></div>
+          <input id="url-input" placeholder="https://api.example.com/path — use {{variables}} from your environment" spellcheck="false" autocomplete="off">
+        </div>
+        <button class="btn btn-ghost" id="btn-code" title="Generate code snippet">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m5 4-3.5 4L5 12M11 4l3.5 4L11 12"/></svg>
+          Code
+        </button>
+        <button class="btn btn-ghost" id="btn-save" title="Save to collection (Ctrl+S)">Save</button>
+        <button class="btn btn-primary" id="btn-send">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.7 1.6a.6.6 0 0 1 .8-.7l12.4 6.5a.6.6 0 0 1 0 1.1L2.5 15.1a.6.6 0 0 1-.8-.7L3.5 8.6 9 8 3.5 7.4z"/></svg>
+          <span id="send-label">Send</span>
+        </button>
+      </div>
+      <div class="req-tabs" id="req-tabs">
+        <button class="req-tab" data-reqtab="params">Params <span class="badge" id="badge-params" hidden></span></button>
+        <button class="req-tab" data-reqtab="headers">Headers <span class="badge" id="badge-headers" hidden></span></button>
+        <button class="req-tab" data-reqtab="body">Body <span class="badge" id="badge-body" hidden>●</span></button>
+        <button class="req-tab" data-reqtab="auth">Auth <span class="badge" id="badge-auth" hidden>●</span></button>
+      </div>
+      <div id="req-body-area"></div>
+      <div id="divider" title="Drag to resize"></div>
+      <div id="response-panel"></div>
+    </div>
+  </main>
+</div>
+
+<datalist id="header-names">
+  <option value="Accept"></option><option value="Accept-Encoding"></option><option value="Accept-Language"></option>
+  <option value="Authorization"></option><option value="Cache-Control"></option><option value="Content-Type"></option>
+  <option value="Cookie"></option><option value="If-Match"></option><option value="If-Modified-Since"></option>
+  <option value="If-None-Match"></option><option value="Origin"></option><option value="Referer"></option>
+  <option value="User-Agent"></option><option value="X-Api-Key"></option><option value="X-Requested-With"></option>
+</datalist>
+<datalist id="content-types">
+  <option value="application/json"></option><option value="application/xml"></option>
+  <option value="application/x-www-form-urlencoded"></option><option value="text/plain"></option>
+  <option value="text/html"></option><option value="multipart/form-data"></option>
+</datalist>
+
+<div id="toasts"></div>
+<input type="file" id="import-file" accept=".json,application/json" hidden>
+
+<script>
+"use strict";
+/* =====================================================================
+   Relay — a single-file REST client
+   ===================================================================== */
+
+/* ---------------- utilities ---------------- */
+const $ = (sel, root) => (root || document).querySelector(sel);
+const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const escHtml = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function debounce(fn, ms) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+// make a click-driven div reachable and activatable by keyboard
+function makeActivatable(el, handler) {
+  el.tabIndex = 0;
+  el.setAttribute("role", "button");
+  el.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handler(e); }
+  });
+}
+function fmtBytes(n) {
+  if (n == null) return "—";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(2) + " MB";
+}
+function fmtMs(ms) {
+  if (ms == null) return "—";
+  if (ms < 1000) return Math.round(ms) + " ms";
+  return (ms / 1000).toFixed(2) + " s";
+}
+function timeAgo(ts) {
+  const d = Date.now() - ts;
+  if (d < 60e3) return "just now";
+  if (d < 3600e3) return Math.floor(d / 60e3) + "m ago";
+  if (d < 86400e3) return Math.floor(d / 3600e3) + "h ago";
+  return new Date(ts).toLocaleDateString() + " " + new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+function tryDecode(s) { try { return decodeURIComponent(s.replace(/\+/g, "%20")); } catch { return s; } }
+function b64EncodeUtf8(s) {
+  const bytes = new TextEncoder().encode(s);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+function b64DecodeUtf8(s) {
+  const bin = atob(s);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+const STATUS_TEXT = {
+  100:"Continue",101:"Switching Protocols",200:"OK",201:"Created",202:"Accepted",204:"No Content",
+  206:"Partial Content",301:"Moved Permanently",302:"Found",303:"See Other",304:"Not Modified",
+  307:"Temporary Redirect",308:"Permanent Redirect",400:"Bad Request",401:"Unauthorized",402:"Payment Required",
+  403:"Forbidden",404:"Not Found",405:"Method Not Allowed",406:"Not Acceptable",408:"Request Timeout",
+  409:"Conflict",410:"Gone",411:"Length Required",412:"Precondition Failed",413:"Payload Too Large",
+  415:"Unsupported Media Type",418:"I'm a teapot",422:"Unprocessable Entity",425:"Too Early",
+  429:"Too Many Requests",500:"Internal Server Error",501:"Not Implemented",502:"Bad Gateway",
+  503:"Service Unavailable",504:"Gateway Timeout"
+};
+
+/* ---------------- state ---------------- */
+const LS_KEY = "relay.state.v1";
+const MAX_HISTORY = 100;
+const MAX_DISPLAY_CHARS = 1500000;
+
+function newKV() { return { enabled: true, key: "", value: "" }; }
+function newFormRow() { return { enabled: true, key: "", value: "", type: "text" }; }
+
+const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const BODY_TYPE_KEYS = ["none", "json", "text", "xml", "form", "multipart"];
+
+function sanitizeRows(rows, withType) {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(r => r && typeof r === "object").map(r => {
+    const row = {
+      enabled: r.enabled !== false,
+      key: typeof r.key === "string" ? r.key : (r.key == null ? "" : String(r.key)),
+      value: typeof r.value === "string" ? r.value : (r.value == null ? "" : String(r.value)),
+    };
+    if (withType) row.type = r.type === "file" ? "file" : "text";
+    return row;
+  });
+}
+
+function newTab(partial) {
+  const t = Object.assign({
+    id: uid(),
+    name: "",
+    method: "GET",
+    url: "",
+    params: [],
+    headers: [],
+    bodyType: "none",           // none | json | text | xml | form | multipart
+    bodyContent: "",
+    formData: [],               // rows for form + multipart
+    auth: { type: "none", username: "", password: "", token: "", key: "", value: "", addTo: "header" },
+    savedRef: null,             // { colId, reqId } when loaded from a collection
+    reqTab: "params",
+    respTab: "body",
+    respView: "pretty",
+    response: null,             // runtime only, not persisted
+  }, partial || {});
+  // harden every field against malformed imports and legacy saved state —
+  // Object.assign lets an explicit null/wrong-type value clobber the defaults
+  t.id = typeof t.id === "string" && t.id ? t.id : uid();
+  t.name = typeof t.name === "string" ? t.name : "";
+  t.url = typeof t.url === "string" ? t.url : (t.url == null ? "" : String(t.url));
+  t.method = METHODS.includes(t.method) ? t.method : "GET";
+  t.bodyType = BODY_TYPE_KEYS.includes(t.bodyType) ? t.bodyType : "none";
+  t.bodyContent = typeof t.bodyContent === "string" ? t.bodyContent : "";
+  t.params = sanitizeRows(t.params);
+  t.headers = sanitizeRows(t.headers);
+  t.formData = sanitizeRows(t.formData, true);
+  t.reqTab = ["params", "headers", "body", "auth"].includes(t.reqTab) ? t.reqTab : "params";
+  t.respTab = ["body", "headers"].includes(t.respTab) ? t.respTab : "body";
+  t.respView = ["pretty", "raw", "preview"].includes(t.respView) ? t.respView : "pretty";
+  const a = t.auth && typeof t.auth === "object" ? t.auth : {};
+  t.auth = {
+    type: ["none", "basic", "bearer", "apikey"].includes(a.type) ? a.type : "none",
+    username: typeof a.username === "string" ? a.username : "",
+    password: typeof a.password === "string" ? a.password : "",
+    token: typeof a.token === "string" ? a.token : "",
+    key: typeof a.key === "string" ? a.key : "",
+    value: typeof a.value === "string" ? a.value : "",
+    addTo: a.addTo === "query" ? "query" : "header",
+  };
+  return t;
+}
+
+function defaultState() {
+  return {
+    tabs: [newTab({ url: "https://jsonplaceholder.typicode.com/todos/1" })],
+    activeTabId: null,
+    collections: [],
+    history: [],
+    environments: [],
+    activeEnvId: "",
+    sidebarTab: "collections",
+    settings: { theme: "dark", timeoutSec: 30 },
+  };
+}
+
+let state;
+try {
+  const raw = localStorage.getItem(LS_KEY);
+  state = raw ? JSON.parse(raw) : null;
+} catch { state = null; }
+if (!state || !Array.isArray(state.tabs)) state = defaultState();
+// hydrate: ensure required fields exist even for states saved by older versions
+state.settings = Object.assign({ theme: "dark", timeoutSec: 30 }, state.settings || {});
+state.tabs = state.tabs.map(t => newTab(t));
+if (!state.tabs.length) state.tabs = [newTab({})];
+if (!state.tabs.some(t => t.id === state.activeTabId)) state.activeTabId = state.tabs[0].id;
+state.collections = state.collections || [];
+state.history = state.history || [];
+state.environments = state.environments || [];
+
+function persistNow() {
+  try {
+    const s = {
+      ...state,
+      tabs: state.tabs.map(t => ({
+        ...t,
+        response: null,
+        formData: (t.formData || []).map(r => { const { _file, ...rest } = r; return rest; }),
+      })),
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(s));
+  } catch (e) { /* storage full or blocked — keep running in-memory */ }
+}
+const persist = debounce(persistNow, 250);
+// flush the pending debounced write so the last ~250ms of edits survive tab close
+window.addEventListener("pagehide", persistNow);
+
+const activeTab = () => state.tabs.find(t => t.id === state.activeTabId);
+const activeEnv = () => state.environments.find(e => e.id === state.activeEnvId) || null;
+
+/* ---------------- theme ---------------- */
+function applyTheme() {
+  document.documentElement.dataset.theme = state.settings.theme;
+  $("#btn-theme").innerHTML = state.settings.theme === "dark"
+    ? '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3.2"/><path d="M8 .8v1.8M8 13.4v1.8M.8 8h1.8M13.4 8h1.8M2.9 2.9l1.3 1.3M11.8 11.8l1.3 1.3M13.1 2.9l-1.3 1.3M4.2 11.8l-1.3 1.3"/></svg>'
+    : '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a6 6 0 1 0 7 7z"/></svg>';
+}
+$("#btn-theme").addEventListener("click", () => {
+  state.settings.theme = state.settings.theme === "dark" ? "light" : "dark";
+  applyTheme(); persist();
+});
+
+/* ---------------- toasts ---------------- */
+function toast(msg, kind) {
+  const el = document.createElement("div");
+  el.className = "toast " + (kind || "ok");
+  el.textContent = msg;
+  $("#toasts").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .25s"; }, 2200);
+  setTimeout(() => el.remove(), 2600);
+}
+
+/* ---------------- modal helper ---------------- */
+let openModalEl = null;
+const modalStack = []; // one-level nesting: prompt/confirm opened from another modal restores it on close
+function openModal({ title, wide, body, foot, onOpen }) {
+  if (openModalEl) { openModalEl.remove(); modalStack.push(openModalEl); openModalEl = null; }
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  const modal = document.createElement("div");
+  modal.className = "modal" + (wide ? " wide" : "");
+  const head = document.createElement("div");
+  head.className = "modal-head";
+  const h2 = document.createElement("h2");
+  h2.textContent = title;
+  const x = document.createElement("button");
+  x.className = "icon-btn"; x.innerHTML = "✕"; x.title = "Close";
+  x.addEventListener("click", closeModal);
+  head.append(h2, x);
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "modal-body";
+  if (typeof body === "string") bodyEl.innerHTML = body; else if (body) bodyEl.appendChild(body);
+  modal.append(head, bodyEl);
+  if (foot) {
+    const footEl = document.createElement("div");
+    footEl.className = "modal-foot";
+    foot.forEach(b => footEl.appendChild(b));
+    modal.appendChild(footEl);
+  }
+  overlay.appendChild(modal);
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) closeModal(); });
+  document.body.appendChild(overlay);
+  openModalEl = overlay;
+  if (onOpen) onOpen(bodyEl);
+  return { overlay, body: bodyEl };
+}
+function closeModal() {
+  if (!openModalEl) return;
+  openModalEl.remove();
+  openModalEl = modalStack.pop() || null;
+  if (openModalEl) document.body.appendChild(openModalEl);
+}
+function mkBtn(label, cls, onClick) {
+  const b = document.createElement("button");
+  b.className = "btn " + (cls || "btn-ghost");
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+function confirmModal(title, message, onYes, yesLabel) {
+  const p = document.createElement("p");
+  p.style.cssText = "color:var(--text-muted);line-height:1.6";
+  p.textContent = message;
+  openModal({
+    title, body: p,
+    foot: [
+      mkBtn("Cancel", "btn-ghost", closeModal),
+      mkBtn(yesLabel || "Delete", "btn-primary", () => { closeModal(); onYes(); }),
+    ],
+  });
+}
+function promptModal(title, label, initial, onSubmit, submitLabel) {
+  const wrap = document.createElement("div");
+  const row = document.createElement("div");
+  row.className = "form-row";
+  const lab = document.createElement("label");
+  lab.textContent = label;
+  const input = document.createElement("input");
+  input.type = "text"; input.value = initial || "";
+  row.append(lab, input);
+  wrap.appendChild(row);
+  const submit = () => { const v = input.value.trim(); if (!v) { input.focus(); return; } closeModal(); onSubmit(v); };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") submit(); });
+  openModal({
+    title, body: wrap,
+    foot: [mkBtn("Cancel", "btn-ghost", closeModal), mkBtn(submitLabel || "Save", "btn-primary", submit)],
+    onOpen: () => { input.focus(); input.select(); },
+  });
+}
+
+/* ---------------- variables ---------------- */
+function substituteVars(str) {
+  if (str == null) return "";
+  const env = activeEnv();
+  if (!env) return String(str);
+  const map = {};
+  (env.vars || []).forEach(v => { if (v.enabled !== false && v.key) map[v.key.trim()] = v.value; });
+  return String(str)
+    .replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, k) => (k in map ? map[k] : m))
+    .replace(/%7B%7B\s*([\w.-]+)\s*%7D%7D/gi, (m, k) => (k in map ? encodeURIComponent(map[k]) : m));
+}
+
+/* ---------------- URL <-> params sync ---------------- */
+function splitUrl(url) {
+  const h = url.indexOf("#");
+  const frag = h >= 0 ? url.slice(h) : "";
+  const base = h >= 0 ? url.slice(0, h) : url;
+  const q = base.indexOf("?");
+  return q >= 0 ? [base.slice(0, q), base.slice(q + 1), frag] : [base, "", frag];
+}
+function parseQueryString(qs) {
+  if (!qs) return [];
+  return qs.split("&").filter(s => s !== "").map(pair => {
+    const i = pair.indexOf("=");
+    const k = i < 0 ? pair : pair.slice(0, i);
+    const v = i < 0 ? "" : pair.slice(i + 1);
+    return { enabled: true, key: tryDecode(k), value: tryDecode(v) };
+  });
+}
+// encode a query component but keep {{variable}} braces readable so
+// environment substitution can still match them at send time
+function encodeQueryPart(s) {
+  return encodeURIComponent(s).replace(/%7B/gi, "{").replace(/%7D/gi, "}");
+}
+function buildQueryString(params) {
+  return params
+    .filter(p => p.enabled && (p.key.trim() !== "" || p.value !== ""))
+    .map(p => encodeQueryPart(p.key.trim()) + (p.value !== "" ? "=" + encodeQueryPart(p.value) : ""))
+    .join("&");
+}
+function syncParamsFromUrl(tab) {
+  const [, qs] = splitUrl(tab.url);
+  const parsed = parseQueryString(qs);
+  const disabled = (tab.params || []).filter(p => !p.enabled);
+  tab.params = parsed.concat(disabled);
+}
+function syncUrlFromParams(tab) {
+  const [base, , frag] = splitUrl(tab.url);
+  const qs = buildQueryString(tab.params || []);
+  tab.url = base + (qs ? "?" + qs : "") + frag;
+  const urlInput = $("#url-input");
+  if (document.activeElement !== urlInput) urlInput.value = tab.url;
+}
+
+/* ---------------- tab bar ---------------- */
+function tabDisplayName(tab) {
+  if (tab.name) return tab.name;
+  if (!tab.url.trim()) return "Untitled";
+  try {
+    const u = new URL(/^https?:\/\//i.test(tab.url) ? tab.url : "https://" + tab.url);
+    const path = u.pathname !== "/" ? u.pathname : "";
+    return (path ? path.split("/").filter(Boolean).slice(-2).join("/") : u.hostname) || u.hostname;
+  } catch { return tab.url.slice(0, 30); }
+}
+function renderTabbar() {
+  const bar = $("#tabbar");
+  bar.innerHTML = "";
+  state.tabs.forEach(tab => {
+    const el = document.createElement("div");
+    el.className = "rtab" + (tab.id === state.activeTabId ? " active" : "");
+    const chip = document.createElement("span");
+    chip.className = "method-chip m-" + tab.method;
+    chip.textContent = tab.method;
+    const name = document.createElement("span");
+    name.className = "tname";
+    name.textContent = tabDisplayName(tab);
+    name.title = tab.url || "";
+    const close = document.createElement("button");
+    close.className = "tab-close";
+    close.innerHTML = "×";
+    close.title = "Close tab";
+    close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(tab.id); });
+    el.append(chip, name, close);
+    const activate = () => { if (state.activeTabId !== tab.id) switchTab(tab.id); };
+    el.addEventListener("click", activate);
+    makeActivatable(el, activate);
+    el.addEventListener("auxclick", (e) => { if (e.button === 1) { e.preventDefault(); closeTab(tab.id); } });
+    bar.appendChild(el);
+  });
+  const plus = document.createElement("button");
+  plus.className = "tab-new";
+  plus.textContent = "+";
+  plus.title = "New request";
+  plus.addEventListener("click", () => addTab());
+  bar.appendChild(plus);
+}
+function addTab(partial) {
+  const t = newTab(partial);
+  state.tabs.push(t);
+  state.activeTabId = t.id;
+  renderAll(); persist();
+  $("#url-input").focus();
+  return t;
+}
+function closeTab(id) {
+  const i = state.tabs.findIndex(t => t.id === id);
+  if (i < 0) return;
+  const fl = inFlight.get(id);
+  if (fl) {
+    if (fl.timer) clearTimeout(fl.timer);
+    inFlight.delete(id);
+    fl.controller.abort("cancelled");
+  }
+  releaseResponse(state.tabs[i].response);
+  state.tabs.splice(i, 1);
+  if (!state.tabs.length) state.tabs.push(newTab({}));
+  if (state.activeTabId === id) state.activeTabId = state.tabs[Math.max(0, i - 1)].id;
+  renderAll(); persist();
+}
+function switchTab(id) {
+  state.activeTabId = id;
+  renderAll(); persist();
+}
+
+/* ---------------- KV editor (shared) ---------------- */
+/**
+ * Renders an editable key/value table into `container`.
+ * rows: array of {enabled, key, value, [type], [_file]}
+ * opts: { keyPlaceholder, valuePlaceholder, keyList, onChange, withFile, rowFactory }
+ */
+function renderKVEditor(container, rows, opts) {
+  opts = opts || {};
+  const factory = opts.rowFactory || newKV;
+  container.innerHTML = "";
+  container.className = "kv-table";
+
+  const build = () => {
+    container.innerHTML = "";
+    rows.forEach((row, idx) => makeRow(row, idx, false));
+    makeRow(factory(), rows.length, true); // ghost
+  };
+
+  const refocus = (idx, field) => {
+    requestAnimationFrame(() => {
+      const el = container.querySelector(`[data-row="${idx}"][data-field="${field}"]`);
+      if (el) { el.focus(); const v = el.value; el.value = ""; el.value = v; }
+    });
+  };
+
+  const makeRow = (row, idx, isGhost) => {
+    const div = document.createElement("div");
+    div.className = "kv-row" + (isGhost ? " ghost" : "") + (!isGhost && !row.enabled ? " disabled" : "");
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = isGhost ? false : row.enabled;
+    cb.disabled = isGhost;
+    cb.title = "Enable / disable";
+    cb.addEventListener("change", () => {
+      row.enabled = cb.checked;
+      div.classList.toggle("disabled", !cb.checked);
+      opts.onChange && opts.onChange();
+    });
+    div.appendChild(cb);
+
+    const mkInput = (field, placeholder) => {
+      const inp = document.createElement("input");
+      inp.className = "kv-in";
+      inp.type = "text";
+      inp.spellcheck = false; inp.autocomplete = "off";
+      inp.placeholder = placeholder;
+      inp.value = row[field] || "";
+      inp.dataset.row = idx; inp.dataset.field = field;
+      if (field === "key" && opts.keyList) inp.setAttribute("list", opts.keyList);
+      inp.addEventListener("input", () => {
+        if (isGhost) {
+          // promote this row in place — no rebuild, so the focused input never
+          // leaves the DOM and no keystroke or IME composition is dropped
+          row.enabled = true;
+          row[field] = inp.value;
+          rows.push(row);
+          isGhost = false;
+          div.classList.remove("ghost");
+          cb.disabled = false;
+          cb.checked = true;
+          del.style.visibility = "";
+          makeRow(factory(), rows.length, true);
+        } else {
+          row[field] = inp.value;
+        }
+        opts.onChange && opts.onChange();
+      });
+      return inp;
+    };
+
+    if (opts.withFile) {
+      const typeSel = document.createElement("select");
+      typeSel.className = "kv-type";
+      ["text", "file"].forEach(t => {
+        const o = document.createElement("option");
+        o.value = t; o.textContent = t;
+        typeSel.appendChild(o);
+      });
+      typeSel.value = row.type || "text";
+      typeSel.addEventListener("change", () => {
+        if (isGhost) { row.enabled = true; rows.push(row); }
+        row.type = typeSel.value;
+        build();
+        opts.onChange && opts.onChange();
+      });
+      div.appendChild(typeSel);
+    }
+
+    div.appendChild(mkInput("key", opts.keyPlaceholder || "Key"));
+
+    if (opts.withFile && (row.type === "file")) {
+      const label = document.createElement("label");
+      label.className = "kv-file-label";
+      const fi = document.createElement("input");
+      fi.type = "file";
+      const fname = document.createElement("span");
+      fname.textContent = row._file ? row._file.name : "Choose file…";
+      fi.addEventListener("change", () => {
+        row._file = fi.files[0] || null;
+        fname.textContent = row._file ? row._file.name : "Choose file…";
+        opts.onChange && opts.onChange();
+      });
+      label.append(fi, fname);
+      div.appendChild(label);
+    } else {
+      div.appendChild(mkInput("value", opts.valuePlaceholder || "Value"));
+    }
+
+    const del = document.createElement("button");
+    del.className = "row-del";
+    del.innerHTML = "×";
+    del.title = "Remove";
+    del.style.visibility = isGhost ? "hidden" : "";
+    del.addEventListener("click", () => {
+      const i = rows.indexOf(row);
+      if (i >= 0) rows.splice(i, 1);
+      build();
+      opts.onChange && opts.onChange();
+    });
+    div.appendChild(del);
+
+    container.appendChild(div);
+  };
+
+  build();
+}
+
+/* ---------------- request editor panel ---------------- */
+function renderRequestPanel() {
+  const tab = activeTab();
+  $("#method-select").value = tab.method;
+  const urlInput = $("#url-input");
+  if (document.activeElement !== urlInput) urlInput.value = tab.url;
+
+  $$(".req-tab").forEach(b => b.classList.toggle("active", b.dataset.reqtab === tab.reqTab));
+  updateBadges();
+
+  const area = $("#req-body-area");
+  area.innerHTML = "";
+
+  if (tab.reqTab === "params") {
+    const kv = document.createElement("div");
+    area.appendChild(kv);
+    renderKVEditor(kv, tab.params, {
+      keyPlaceholder: "Parameter", valuePlaceholder: "Value",
+      onChange: () => { syncUrlFromParams(tab); updateBadges(); renderTabbar(); persist(); },
+    });
+  } else if (tab.reqTab === "headers") {
+    const kv = document.createElement("div");
+    area.appendChild(kv);
+    renderKVEditor(kv, tab.headers, {
+      keyPlaceholder: "Header", valuePlaceholder: "Value", keyList: "header-names",
+      onChange: () => { updateBadges(); persist(); },
+    });
+  } else if (tab.reqTab === "body") {
+    renderBodyEditor(area, tab);
+  } else if (tab.reqTab === "auth") {
+    renderAuthEditor(area, tab);
+  }
+}
+
+function updateBadges() {
+  const tab = activeTab();
+  const nParams = tab.params.filter(p => p.enabled && p.key.trim()).length;
+  const nHeaders = tab.headers.filter(h => h.enabled && h.key.trim()).length;
+  const bp = $("#badge-params"), bh = $("#badge-headers"), bb = $("#badge-body"), ba = $("#badge-auth");
+  bp.hidden = !nParams; bp.textContent = nParams;
+  bh.hidden = !nHeaders; bh.textContent = nHeaders;
+  const hasBody = tab.bodyType !== "none" && (
+    (["json", "text", "xml"].includes(tab.bodyType) && tab.bodyContent.trim() !== "") ||
+    (["form", "multipart"].includes(tab.bodyType) && tab.formData.some(r => r.enabled && r.key.trim()))
+  );
+  bb.hidden = !hasBody;
+  ba.hidden = tab.auth.type === "none";
+}
+
+const BODY_TYPES = [
+  ["none", "None"], ["json", "JSON"], ["text", "Text"], ["xml", "XML"],
+  ["form", "Form URL-encoded"], ["multipart", "Multipart Form"],
+];
+
+function renderBodyEditor(area, tab) {
+  const typeRow = document.createElement("div");
+  typeRow.className = "body-type-row";
+  const seg = document.createElement("div");
+  seg.className = "seg";
+  BODY_TYPES.forEach(([val, label]) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.classList.toggle("active", tab.bodyType === val);
+    b.addEventListener("click", () => { tab.bodyType = val; renderRequestPanel(); persist(); });
+    seg.appendChild(b);
+  });
+  typeRow.appendChild(seg);
+
+  if (tab.bodyType === "json") {
+    const beautify = document.createElement("button");
+    beautify.className = "text-btn";
+    beautify.textContent = "Beautify";
+    beautify.addEventListener("click", () => {
+      try {
+        tab.bodyContent = JSON.stringify(JSON.parse(tab.bodyContent), null, 2);
+        renderRequestPanel(); persist();
+      } catch { toast("Not valid JSON", "err"); }
+    });
+    typeRow.appendChild(beautify);
+  }
+  area.appendChild(typeRow);
+
+  if (["GET", "HEAD"].includes(tab.method) && tab.bodyType !== "none") {
+    const note = document.createElement("div");
+    note.className = "body-note";
+    note.textContent = "⚠ " + tab.method + " requests cannot carry a body in the browser — it will not be sent.";
+    area.appendChild(note);
+  }
+
+  if (tab.bodyType === "none") {
+    const note = document.createElement("div");
+    note.className = "body-note";
+    note.textContent = "This request has no body.";
+    area.appendChild(note);
+  } else if (["json", "text", "xml"].includes(tab.bodyType)) {
+    const ta = document.createElement("textarea");
+    ta.className = "code-editor";
+    ta.spellcheck = false;
+    ta.placeholder = tab.bodyType === "json" ? '{\n  "key": "value"\n}' : (tab.bodyType === "xml" ? "<root>…</root>" : "Raw text body…");
+    ta.value = tab.bodyContent;
+    const status = document.createElement("div");
+    const validate = () => {
+      if (tab.bodyType !== "json" || !ta.value.trim()) { status.textContent = ""; status.className = ""; return; }
+      try { JSON.parse(ta.value); status.textContent = "✓ Valid JSON"; status.className = "json-ok"; }
+      catch (e) { status.textContent = String(e.message); status.className = "json-error"; }
+    };
+    ta.addEventListener("input", () => { tab.bodyContent = ta.value; validate(); updateBadges(); persist(); });
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const s = ta.selectionStart, en = ta.selectionEnd;
+        ta.value = ta.value.slice(0, s) + "  " + ta.value.slice(en);
+        ta.selectionStart = ta.selectionEnd = s + 2;
+        tab.bodyContent = ta.value; persist();
+      }
+    });
+    validate();
+    area.append(ta, status);
+  } else {
+    // form / multipart
+    const kv = document.createElement("div");
+    area.appendChild(kv);
+    renderKVEditor(kv, tab.formData, {
+      keyPlaceholder: "Field", valuePlaceholder: "Value",
+      withFile: tab.bodyType === "multipart",
+      rowFactory: newFormRow,
+      onChange: () => { updateBadges(); persist(); },
+    });
+    if (tab.bodyType === "multipart") {
+      const note = document.createElement("div");
+      note.className = "body-note";
+      note.textContent = "File attachments are kept for this session only — they are not saved with the request.";
+      area.appendChild(note);
+    }
+  }
+}
+
+function renderAuthEditor(area, tab) {
+  const grid = document.createElement("div");
+  grid.className = "auth-grid";
+
+  const addField = (labelText, el) => {
+    const lab = document.createElement("label");
+    lab.textContent = labelText;
+    grid.append(lab, el);
+  };
+  const mkText = (field, placeholder, type) => {
+    const inp = document.createElement("input");
+    inp.type = type || "text";
+    inp.placeholder = placeholder || "";
+    inp.spellcheck = false; inp.autocomplete = "off";
+    inp.value = tab.auth[field] || "";
+    inp.addEventListener("input", () => { tab.auth[field] = inp.value; persist(); });
+    return inp;
+  };
+
+  const sel = document.createElement("select");
+  [["none", "No Auth"], ["basic", "Basic Auth"], ["bearer", "Bearer Token"], ["apikey", "API Key"]].forEach(([v, l]) => {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = l;
+    sel.appendChild(o);
+  });
+  sel.value = tab.auth.type;
+  sel.addEventListener("change", () => { tab.auth.type = sel.value; renderRequestPanel(); updateBadges(); persist(); });
+  addField("Type", sel);
+
+  const hint = (text) => {
+    const d = document.createElement("div");
+    d.className = "auth-hint";
+    d.textContent = text;
+    grid.appendChild(d);
+  };
+
+  if (tab.auth.type === "basic") {
+    addField("Username", mkText("username", "username"));
+    addField("Password", mkText("password", "password", "password"));
+    hint("Adds header:  Authorization: Basic base64(username:password)");
+  } else if (tab.auth.type === "bearer") {
+    addField("Token", mkText("token", "token — supports {{variables}}"));
+    hint("Adds header:  Authorization: Bearer <token>");
+  } else if (tab.auth.type === "apikey") {
+    addField("Key", mkText("key", "e.g. X-Api-Key"));
+    addField("Value", mkText("value", "secret — supports {{variables}}"));
+    const addTo = document.createElement("select");
+    [["header", "Header"], ["query", "Query parameter"]].forEach(([v, l]) => {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = l;
+      addTo.appendChild(o);
+    });
+    addTo.value = tab.auth.addTo || "header";
+    addTo.addEventListener("change", () => { tab.auth.addTo = addTo.value; persist(); });
+    addField("Add to", addTo);
+  } else {
+    hint("No authentication will be attached to this request.");
+  }
+  area.appendChild(grid);
+}
+
+/* ---------------- building & sending requests ---------------- */
+function hasHeader(headersObj, name) {
+  return Object.keys(headersObj).some(k => k.toLowerCase() === name.toLowerCase());
+}
+function appendQueryParam(url, key, value) {
+  const [base, qs, frag] = splitUrl(url);
+  const pair = encodeURIComponent(key) + "=" + encodeURIComponent(value);
+  return base + "?" + (qs ? qs + "&" : "") + pair + frag;
+}
+
+/**
+ * Resolve a tab into a concrete request description (variables substituted,
+ * auth applied). Shared by send + code generation.
+ * Returns { url, method, headers: {k:v}, bodyKind, bodyText, formRows }
+ */
+function buildResolvedRequest(tab) {
+  let url = substituteVars(tab.url.trim());
+  if (url && !/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(url)) url = "https://" + url;
+
+  const headers = {};
+  // merge duplicate rows (case-insensitive) instead of silently dropping all but the last
+  const addHeader = (key, value) => {
+    const existing = Object.keys(headers).find(k => k.toLowerCase() === key.toLowerCase());
+    if (existing) headers[existing] += (existing.toLowerCase() === "cookie" ? "; " : ", ") + value;
+    else headers[key] = value;
+  };
+  tab.headers.forEach(h => {
+    if (h.enabled && h.key.trim()) addHeader(substituteVars(h.key.trim()), substituteVars(h.value));
+  });
+
+  const a = tab.auth || { type: "none" };
+  if (a.type === "basic") {
+    const cred = substituteVars(a.username || "") + ":" + substituteVars(a.password || "");
+    // always UTF-8 encode so non-ASCII credentials match RFC 7617 expectations
+    headers["Authorization"] = "Basic " + btoa(String.fromCharCode(...new TextEncoder().encode(cred)));
+  } else if (a.type === "bearer") {
+    headers["Authorization"] = "Bearer " + substituteVars(a.token || "");
+  } else if (a.type === "apikey" && (a.key || a.value)) {
+    if ((a.addTo || "header") === "query") {
+      url = appendQueryParam(url, substituteVars(a.key || "key"), substituteVars(a.value || ""));
+    } else {
+      headers[substituteVars(a.key || "X-Api-Key")] = substituteVars(a.value || "");
+    }
+  }
+
+  const method = tab.method;
+  const canBody = !["GET", "HEAD"].includes(method) && tab.bodyType !== "none";
+  let bodyKind = canBody ? tab.bodyType : "none";
+  let bodyText = "";
+  let formRows = [];
+
+  if (bodyKind === "json" || bodyKind === "text" || bodyKind === "xml") {
+    bodyText = substituteVars(tab.bodyContent);
+    if (!bodyText.trim()) bodyKind = "none";
+    else if (!hasHeader(headers, "content-type")) {
+      headers["Content-Type"] = bodyKind === "json" ? "application/json"
+        : bodyKind === "xml" ? "application/xml" : "text/plain";
+    }
+  } else if (bodyKind === "form" || bodyKind === "multipart") {
+    formRows = (tab.formData || [])
+      .filter(r => r.enabled && r.key.trim())
+      .map(r => ({ key: substituteVars(r.key.trim()), value: substituteVars(r.value || ""), type: r.type || "text", _file: r._file || null }));
+    if (!formRows.length) bodyKind = "none";
+    else if (bodyKind === "form" && !hasHeader(headers, "content-type")) {
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+    } else if (bodyKind === "multipart") {
+      // let the browser set the multipart boundary
+      for (const k of Object.keys(headers)) {
+        if (k.toLowerCase() === "content-type") delete headers[k];
+      }
+    }
+  }
+  return { url, method, headers, bodyKind, bodyText, formRows };
+}
+
+/* ---------------- native engine (Relay companion) ---------------- */
+// When this page is served by the Relay companion app, requests are routed
+// through its local proxy — free of browser CORS restrictions. When the file
+// is opened directly in a browser, everything still works via plain fetch().
+let proxyInfo = null;
+
+function updateEngineChip() {
+  const chip = $("#engine-chip");
+  chip.classList.toggle("native", !!proxyInfo);
+  $("#engine-label").textContent = proxyInfo
+    ? "Native engine — connected"
+    : "Browser mode";
+  chip.title = proxyInfo
+    ? "Requests are sent by the Relay app itself, with every response header visible."
+    : "This page is running directly in your browser, which may restrict some requests and hide some response headers. Run it through the Relay app for full functionality.";
+}
+
+async function reprobeProxy() {
+  try {
+    const r = await fetch("/relay-proxy/info", { cache: "no-store" });
+    if (r.ok) {
+      const j = await r.json();
+      if (j && j.relay && j.token) { proxyInfo = j; updateEngineChip(); return true; }
+    }
+  } catch { /* not running under the companion — browser mode */ }
+  return false;
+}
+
+const proxyDetection = (async function detectProxy() {
+  if (!/^https?:$/.test(location.protocol)) return;
+  await reprobeProxy();
+})();
+
+async function sendDirect(r, body, signal) {
+  const res = await fetch(r.url, { method: r.method, headers: r.headers, body, signal, redirect: "follow" });
+  const blob = await res.blob();
+  return {
+    status: res.status,
+    statusText: res.statusText,
+    headersList: Array.from(res.headers.entries()),
+    finalUrl: res.url,
+    redirected: res.redirected,
+    contentType: res.headers.get("content-type") || "",
+    blob,
+  };
+}
+
+async function sendViaProxy(r, body, signal, isRetry) {
+  const res = await fetch("/relay-proxy", {
+    method: "POST",
+    cache: "no-store",
+    signal,
+    body,
+    headers: {
+      "X-Relay-Token": proxyInfo.token,
+      "X-Relay-Url": encodeURIComponent(r.url),
+      "X-Relay-Method": r.method,
+      "X-Relay-Headers": b64EncodeUtf8(JSON.stringify(r.headers)),
+    },
+  });
+  const metaRaw = res.headers.get("x-relay-meta");
+  if (!metaRaw) {
+    // usually a stale session token: the companion was restarted while this
+    // page stayed open — re-probe for the new token and retry once
+    if (!isRetry && await reprobeProxy()) return sendViaProxy(r, body, signal, true);
+    if (res.status === 403) throw new Error("The Relay app was restarted — reload this page to reconnect.");
+    throw new Error("The Relay engine returned an unexpected response (HTTP " + res.status + ").");
+  }
+  const meta = JSON.parse(b64DecodeUtf8(metaRaw));
+  if (meta.error) throw new Error(meta.error);
+  const blob = await res.blob();
+  const headersList = Array.isArray(meta.headers) ? meta.headers : [];
+  const ctPair = headersList.find(p => p[0].toLowerCase() === "content-type");
+  return {
+    status: meta.status,
+    statusText: meta.statusText || "",
+    headersList,
+    finalUrl: meta.url || r.url,
+    redirected: !!meta.redirected,
+    contentType: ctPair ? ctPair[1] : "",
+    blob,
+  };
+}
+
+const inFlight = new Map(); // tabId -> { controller, timer, token }
+
+function releaseResponse(resp) {
+  if (resp && resp._imgUrl) { try { URL.revokeObjectURL(resp._imgUrl); } catch {} }
+}
+
+function updateSendUI() {
+  const sending = inFlight.has(state.activeTabId);
+  $("#btn-send").classList.toggle("sending", sending);
+  $("#send-label").textContent = sending ? "Cancel" : "Send";
+}
+
+async function sendRequest() {
+  const tab = activeTab();
+  const existing = inFlight.get(tab.id);
+  if (existing) {
+    existing.controller.abort("cancelled");
+    return;
+  }
+  const r = buildResolvedRequest(tab);
+  if (!r.url) { toast("Enter a URL first", "err"); $("#url-input").focus(); return; }
+
+  // don't race the startup probe — an instant Ctrl+Enter after load should
+  // still use the native engine when the companion is serving us
+  try { await proxyDetection; } catch {}
+
+  const controller = new AbortController();
+  const timeoutSec = Number(state.settings.timeoutSec) || 0;
+  const timer = timeoutSec > 0 ? setTimeout(() => controller.abort("timeout"), timeoutSec * 1000) : null;
+  const token = uid();
+  // is this request still the one the tab is waiting on? (guards against a
+  // cancelled request's late rejection clobbering a newer request's state)
+  const isCurrent = () => { const cur = inFlight.get(tab.id); return !!cur && cur.token === token; };
+  inFlight.set(tab.id, { controller, timer, token });
+  updateSendUI();
+  releaseResponse(tab.response);
+  tab.response = { loading: true };
+  renderResponse();
+
+  let body;
+  if (r.bodyKind === "json" || r.bodyKind === "text" || r.bodyKind === "xml") body = r.bodyText;
+  else if (r.bodyKind === "form") {
+    const p = new URLSearchParams();
+    r.formRows.forEach(row => p.append(row.key, row.value));
+    body = p.toString();
+  } else if (r.bodyKind === "multipart") {
+    const fd = new FormData();
+    r.formRows.forEach(row => {
+      if (row.type === "file" && row._file) fd.append(row.key, row._file);
+      else fd.append(row.key, row.value);
+    });
+    body = fd;
+  }
+
+  const viaProxy = !!proxyInfo;
+  const t0 = performance.now();
+  try {
+    const info = viaProxy
+      ? await sendViaProxy(r, body, controller.signal)
+      : await sendDirect(r, body, controller.signal);
+    const durationMs = performance.now() - t0;
+    const contentType = info.contentType || "";
+    let bodyFullText = "";
+    const isTextual = !contentType || /json|text|xml|html|javascript|csv|urlencoded|svg|yaml|graphql/i.test(contentType);
+    if (isTextual) { try { bodyFullText = await info.blob.text(); } catch { bodyFullText = ""; } }
+    const truncated = bodyFullText.length > MAX_DISPLAY_CHARS;
+
+    if (isCurrent()) {
+      releaseResponse(tab.response);
+      tab.response = {
+        ok: info.status >= 200 && info.status < 300,
+        status: info.status,
+        statusText: info.statusText || STATUS_TEXT[info.status] || "",
+        headers: info.headersList,
+        finalUrl: info.finalUrl,
+        redirected: info.redirected,
+        durationMs,
+        size: info.blob.size,
+        contentType,
+        isTextual,
+        bodyText: truncated ? bodyFullText.slice(0, MAX_DISPLAY_CHARS) : bodyFullText,
+        truncated,
+        engine: viaProxy ? "native" : "browser",
+        _blob: info.blob,
+      };
+      tab.respTab = "body";
+      pushHistory(tab, { status: info.status, durationMs });
+    }
+  } catch (err) {
+    const durationMs = performance.now() - t0;
+    const reason = controller.signal.aborted ? (controller.signal.reason || "cancelled") : null;
+    if (isCurrent()) {
+      releaseResponse(tab.response);
+      tab.response = {
+        error: {
+          kind: reason === "timeout" ? "timeout" : reason ? "cancelled" : "network",
+          message: err && err.message ? err.message : String(err),
+        },
+        durationMs,
+        engine: viaProxy ? "native" : "browser",
+        requestUrl: r.url,
+      };
+      if (!reason) pushHistory(tab, { status: 0, durationMs });
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (isCurrent()) inFlight.delete(tab.id);
+    updateSendUI();
+    if (state.activeTabId === tab.id) renderResponse();
+    renderSidebar();
+    persist();
+  }
+}
+
+function snapshotRequest(tab) {
+  return {
+    name: tab.name,
+    method: tab.method,
+    url: tab.url,
+    params: clone(tab.params),
+    headers: clone(tab.headers),
+    bodyType: tab.bodyType,
+    bodyContent: tab.bodyContent,
+    formData: (tab.formData || []).map(r => { const { _file, ...rest } = r; return rest; }),
+    auth: clone(tab.auth),
+  };
+}
+function pushHistory(tab, meta) {
+  state.history.unshift({
+    id: uid(),
+    ts: Date.now(),
+    method: tab.method,
+    url: tab.url,
+    status: meta.status,
+    durationMs: meta.durationMs,
+    snapshot: snapshotRequest(tab),
+  });
+  if (state.history.length > MAX_HISTORY) state.history.length = MAX_HISTORY;
+}
+
+/* ---------------- response rendering ---------------- */
+function statusClass(status) {
+  if (!status) return "status-err";
+  if (status < 300) return "status-2xx";
+  if (status < 400) return "status-3xx";
+  if (status < 500) return "status-4xx";
+  return "status-5xx";
+}
+
+function renderResponse() {
+  const tab = activeTab();
+  const panel = $("#response-panel");
+  panel.innerHTML = "";
+  const resp = tab.response;
+
+  if (!resp) {
+    const empty = document.createElement("div");
+    empty.className = "resp-empty";
+    empty.innerHTML = `
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".6">
+        <path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 9h18M7 6.5h.01M9.5 6.5h.01"/>
+      </svg>
+      <div>Send a request to see the response here</div>
+      <div class="kbd-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> to send &nbsp;·&nbsp; <kbd>Ctrl</kbd>+<kbd>S</kbd> to save</div>`;
+    panel.appendChild(empty);
+    return;
+  }
+
+  if (resp.loading) {
+    const empty = document.createElement("div");
+    empty.className = "resp-empty";
+    empty.innerHTML = `<div class="spin" style="font-size:22px">◌</div><div>Sending request…</div>`;
+    panel.appendChild(empty);
+    return;
+  }
+
+  if (resp.error) {
+    const bar = document.createElement("div");
+    bar.className = "resp-statusbar";
+    const chip = document.createElement("span");
+    chip.className = "status-chip status-err";
+    chip.textContent = resp.error.kind === "timeout" ? "Timed out" : resp.error.kind === "cancelled" ? "Cancelled" : "Error";
+    const meta = document.createElement("span");
+    meta.className = "resp-meta";
+    meta.innerHTML = `Time: <b>${fmtMs(resp.durationMs)}</b>`;
+    bar.append(chip, meta);
+    panel.appendChild(bar);
+
+    const wrap = document.createElement("div");
+    wrap.className = "resp-body-wrap";
+    const card = document.createElement("div");
+    card.className = "resp-error-card";
+    const h = document.createElement("h3");
+    const p = document.createElement("p");
+    if (resp.error.kind === "timeout") {
+      h.textContent = "Request timed out";
+      p.textContent = `No response within ${state.settings.timeoutSec}s. You can raise the timeout in Settings.`;
+    } else if (resp.error.kind === "cancelled") {
+      h.textContent = "Request cancelled";
+      p.textContent = "The request was cancelled before a response was received.";
+    } else if (resp.engine === "native") {
+      h.textContent = "Could not send request";
+      p.innerHTML = `<code>${escHtml(resp.error.message)}</code><br><br>
+        The request failed at the network level. Common causes:<br>
+        • The host name doesn't resolve, or the server refused the connection.<br>
+        • A TLS/certificate problem on the target server.<br>
+        • The URL is invalid or the port isn't reachable.`;
+    } else {
+      h.textContent = "Could not send request";
+      p.innerHTML = `<code>${escHtml(resp.error.message)}</code><br><br>
+        The request failed. Common causes:<br>
+        • Browser security restrictions on this page — running Relay through its app avoids them.<br>
+        • The host is unreachable, the connection was refused, or the URL is invalid.<br>
+        • Calling an <code>http://</code> URL from an <code>https://</code> page.`;
+    }
+    card.append(h, p);
+    wrap.appendChild(card);
+    panel.appendChild(wrap);
+    return;
+  }
+
+  /* status bar */
+  const bar = document.createElement("div");
+  bar.className = "resp-statusbar";
+  const chip = document.createElement("span");
+  chip.className = "status-chip " + statusClass(resp.status);
+  chip.textContent = resp.status + (resp.statusText ? " " + resp.statusText : "");
+  const timeMeta = document.createElement("span");
+  timeMeta.className = "resp-meta";
+  timeMeta.innerHTML = `Time: <b>${fmtMs(resp.durationMs)}</b>`;
+  const sizeMeta = document.createElement("span");
+  sizeMeta.className = "resp-meta";
+  sizeMeta.innerHTML = `Size: <b>${fmtBytes(resp.size)}</b>`;
+  bar.append(chip, timeMeta, sizeMeta);
+  if (resp.redirected) {
+    const rd = document.createElement("span");
+    rd.className = "resp-meta";
+    rd.title = resp.finalUrl;
+    rd.innerHTML = `↪ redirected`;
+    bar.appendChild(rd);
+  }
+  const actions = document.createElement("div");
+  actions.className = "resp-actions";
+  const copyBtn = mkBtn("Copy", "btn-ghost", async () => {
+    try { await navigator.clipboard.writeText(resp.bodyText || ""); toast("Response copied"); }
+    catch { toast("Copy failed", "err"); }
+  });
+  copyBtn.style.padding = "5px 12px";
+  const dlBtn = mkBtn("Download", "btn-ghost", () => downloadResponse(resp));
+  dlBtn.style.padding = "5px 12px";
+  actions.append(copyBtn, dlBtn);
+  bar.appendChild(actions);
+  panel.appendChild(bar);
+
+  /* tabs */
+  const tabs = document.createElement("div");
+  tabs.className = "resp-tabs";
+  [["body", "Body"], ["headers", `Headers (${resp.headers.length})`]].forEach(([val, label]) => {
+    const b = document.createElement("button");
+    b.className = "req-tab" + (tab.respTab === val ? " active" : "");
+    b.textContent = label;
+    b.addEventListener("click", () => { tab.respTab = val; renderResponse(); });
+    tabs.appendChild(b);
+  });
+  if (tab.respTab === "body" && resp.isTextual && resp.bodyText) {
+    const seg = document.createElement("div");
+    seg.className = "seg";
+    seg.style.marginLeft = "auto";
+    seg.style.margin = "4px 0 4px auto";
+    const views = [["pretty", "Pretty"], ["raw", "Raw"]];
+    if (/html|image|svg/i.test(resp.contentType)) views.push(["preview", "Preview"]);
+    // a view kept from a previous response (e.g. Preview) may not apply here
+    if (!views.some(([v]) => v === tab.respView)) tab.respView = "pretty";
+    views.forEach(([v, l]) => {
+      const b = document.createElement("button");
+      b.textContent = l;
+      b.classList.toggle("active", tab.respView === v);
+      b.addEventListener("click", () => { tab.respView = v; renderResponse(); });
+      seg.appendChild(b);
+    });
+    tabs.appendChild(seg);
+  }
+  panel.appendChild(tabs);
+
+  const wrap = document.createElement("div");
+  wrap.className = "resp-body-wrap";
+  panel.appendChild(wrap);
+
+  if (resp.truncated) {
+    const note = document.createElement("div");
+    note.className = "trunc-note";
+    note.textContent = `Large response — showing the first ${fmtBytes(MAX_DISPLAY_CHARS)} of text. Use Download for the full body.`;
+    wrap.appendChild(note);
+  }
+
+  if (tab.respTab === "headers") {
+    const table = document.createElement("table");
+    table.className = "resp-headers-table";
+    resp.headers.forEach(([k, v]) => {
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td");
+      td1.textContent = k;
+      const td2 = document.createElement("td");
+      td2.textContent = v;
+      tr.append(td1, td2);
+      table.appendChild(tr);
+    });
+    wrap.appendChild(table);
+    if (resp.engine !== "native") {
+      const hint = document.createElement("div");
+      hint.className = "body-note";
+      hint.style.padding = "10px 16px";
+      hint.textContent = "Note: in browser mode some response headers may be hidden by the browser. The Relay app shows them all.";
+      wrap.appendChild(hint);
+    }
+    return;
+  }
+
+  /* body views */
+  const isImage = /^image\//i.test(resp.contentType) && !/svg/i.test(resp.contentType);
+  if (isImage) {
+    const d = document.createElement("div");
+    d.className = "preview-img-wrap";
+    const img = document.createElement("img");
+    if (!resp._imgUrl) resp._imgUrl = URL.createObjectURL(resp._blob);
+    img.src = resp._imgUrl;
+    d.appendChild(img);
+    wrap.appendChild(d);
+    return;
+  }
+  if (!resp.isTextual) {
+    const d = document.createElement("div");
+    d.className = "resp-empty";
+    d.style.padding = "30px";
+    d.innerHTML = `<div>Binary response (<b>${escHtml(resp.contentType || "unknown type")}</b>, ${fmtBytes(resp.size)})</div>`;
+    const dl = mkBtn("Download response", "btn-primary", () => downloadResponse(resp));
+    d.appendChild(dl);
+    wrap.appendChild(d);
+    return;
+  }
+  if (!resp.bodyText) {
+    const d = document.createElement("div");
+    d.className = "resp-empty";
+    d.innerHTML = "<div>Empty response body</div>";
+    wrap.appendChild(d);
+    return;
+  }
+
+  if (tab.respView === "preview" && /html|svg/i.test(resp.contentType)) {
+    const iframe = document.createElement("iframe");
+    iframe.className = "preview-frame";
+    iframe.sandbox = "";
+    iframe.srcdoc = resp.bodyText;
+    wrap.appendChild(iframe);
+    return;
+  }
+
+  const pre = document.createElement("pre");
+  pre.className = "resp-pre";
+  let shownAsJson = false;
+  if (tab.respView === "pretty" && !resp.truncated) {
+    try {
+      const parsed = JSON.parse(resp.bodyText);
+      pre.innerHTML = highlightJSON(JSON.stringify(parsed, null, 2));
+      shownAsJson = true;
+    } catch { /* not JSON */ }
+  }
+  if (!shownAsJson) pre.textContent = resp.bodyText;
+  wrap.appendChild(pre);
+}
+
+function highlightJSON(jsonStr) {
+  const e = escHtml(jsonStr);
+  return e.replace(
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (m) => {
+      let cls = "num";
+      if (m[0] === '"') cls = /:\s*$/.test(m) || m.endsWith(":") ? "key" : "str";
+      else if (m === "true" || m === "false") cls = "bool";
+      else if (m === "null") cls = "null";
+      return `<span class="tok-${cls}">${m}</span>`;
+    }
+  );
+}
+
+function extFromContentType(ct) {
+  if (/json/i.test(ct)) return ".json";
+  if (/html/i.test(ct)) return ".html";
+  if (/xml/i.test(ct)) return ".xml";
+  if (/csv/i.test(ct)) return ".csv";
+  if (/png/i.test(ct)) return ".png";
+  if (/jpe?g/i.test(ct)) return ".jpg";
+  if (/gif/i.test(ct)) return ".gif";
+  if (/svg/i.test(ct)) return ".svg";
+  if (/pdf/i.test(ct)) return ".pdf";
+  if (/plain/i.test(ct)) return ".txt";
+  return "";
+}
+function downloadResponse(resp) {
+  if (!resp._blob) { toast("Nothing to download", "err"); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(resp._blob);
+  a.download = "response" + extFromContentType(resp.contentType);
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+/* ---------------- sidebar ---------------- */
+function renderSidebar() {
+  $$(".sb-tab").forEach(b => b.classList.toggle("active", b.dataset.sbtab === state.sidebarTab));
+  const toolbar = $("#sb-toolbar");
+  const content = $("#sb-content");
+  toolbar.innerHTML = "";
+  content.innerHTML = "";
+
+  if (state.sidebarTab === "collections") {
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = "Collections";
+    const add = document.createElement("button");
+    add.className = "text-btn";
+    add.textContent = "+ New";
+    add.addEventListener("click", () => {
+      promptModal("New collection", "Collection name", "", (name) => {
+        state.collections.push({ id: uid(), name, open: true, requests: [] });
+        renderSidebar(); persist();
+      }, "Create");
+    });
+    toolbar.append(label, add);
+
+    if (!state.collections.length) {
+      const d = document.createElement("div");
+      d.className = "empty-state";
+      d.innerHTML = "No collections yet.<br>Save a request (Ctrl+S) or create a collection to organize your APIs.";
+      content.appendChild(d);
+      return;
+    }
+
+    state.collections.forEach(col => {
+      const folder = document.createElement("div");
+      folder.className = "col-folder" + (col.open ? " open" : "");
+
+      const head = document.createElement("div");
+      head.className = "col-folder-head";
+      const chev = document.createElement("span");
+      chev.className = "chev";
+      chev.textContent = "▶";
+      const fname = document.createElement("span");
+      fname.className = "fname";
+      fname.textContent = col.name;
+      fname.title = "Double-click to rename";
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = col.requests.length;
+      const del = document.createElement("button");
+      del.className = "row-del";
+      del.innerHTML = "×";
+      del.title = "Delete collection";
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        confirmModal("Delete collection", `Delete "${col.name}" and its ${col.requests.length} request(s)? This cannot be undone.`, () => {
+          state.collections = state.collections.filter(c => c.id !== col.id);
+          state.tabs.forEach(t => { if (t.savedRef && t.savedRef.colId === col.id) t.savedRef = null; });
+          renderSidebar(); persist();
+        });
+      });
+      head.append(chev, fname, count, del);
+      const toggleOpen = () => { col.open = !col.open; renderSidebar(); persist(); };
+      head.addEventListener("click", toggleOpen);
+      makeActivatable(head, toggleOpen);
+      head.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        promptModal("Rename collection", "Collection name", col.name, (name) => {
+          col.name = name; renderSidebar(); persist();
+        }, "Rename");
+      });
+      folder.appendChild(head);
+
+      const reqs = document.createElement("div");
+      reqs.className = "col-reqs";
+      col.requests.forEach(req => {
+        const item = document.createElement("div");
+        item.className = "req-item";
+        const chipEl = document.createElement("span");
+        chipEl.className = "method-chip m-" + req.req.method;
+        chipEl.textContent = req.req.method;
+        const rn = document.createElement("span");
+        rn.className = "rname";
+        rn.textContent = req.name;
+        rn.title = req.req.url;
+        const rdel = document.createElement("button");
+        rdel.className = "row-del";
+        rdel.innerHTML = "×";
+        rdel.title = "Delete request";
+        rdel.addEventListener("click", (e) => {
+          e.stopPropagation();
+          col.requests = col.requests.filter(r => r.id !== req.id);
+          state.tabs.forEach(t => { if (t.savedRef && t.savedRef.reqId === req.id) t.savedRef = null; });
+          renderSidebar(); persist();
+        });
+        item.append(chipEl, rn, rdel);
+        item.addEventListener("click", () => openSavedRequest(col, req));
+        makeActivatable(item, () => openSavedRequest(col, req));
+        reqs.appendChild(item);
+      });
+      if (!col.requests.length) {
+        const d = document.createElement("div");
+        d.className = "body-note";
+        d.style.paddingLeft = "24px";
+        d.textContent = "Empty — save a request here.";
+        reqs.appendChild(d);
+      }
+      folder.appendChild(reqs);
+      content.appendChild(folder);
+    });
+  } else {
+    const label = document.createElement("span");
+    label.className = "label";
+    label.textContent = "History";
+    toolbar.appendChild(label);
+    if (state.history.length) {
+      const clear = document.createElement("button");
+      clear.className = "text-btn danger";
+      clear.textContent = "Clear";
+      clear.addEventListener("click", () => {
+        confirmModal("Clear history", "Remove all request history? This cannot be undone.", () => {
+          state.history = []; renderSidebar(); persist();
+        }, "Clear");
+      });
+      toolbar.appendChild(clear);
+    }
+
+    if (!state.history.length) {
+      const d = document.createElement("div");
+      d.className = "empty-state";
+      d.innerHTML = "No requests yet.<br>Everything you send shows up here.";
+      content.appendChild(d);
+      return;
+    }
+
+    state.history.forEach(h => {
+      const item = document.createElement("div");
+      item.className = "hist-item";
+      const chipEl = document.createElement("span");
+      chipEl.className = "method-chip m-" + h.method;
+      chipEl.textContent = h.method;
+      const main = document.createElement("div");
+      main.className = "hist-main";
+      const u = document.createElement("div");
+      u.className = "hist-url";
+      u.textContent = h.url;
+      u.title = h.url;
+      const meta = document.createElement("div");
+      meta.className = "hist-meta";
+      const st = document.createElement("span");
+      st.className = "hist-status " + (h.status ? (h.status < 400 ? "" : "") : "");
+      st.style.color = h.status === 0 ? "var(--danger)" : h.status < 300 ? "var(--ok)" : h.status < 400 ? "var(--warn)" : "var(--danger)";
+      st.textContent = h.status === 0 ? "ERR" : h.status;
+      meta.append(st, document.createTextNode(` · ${fmtMs(h.durationMs)} · ${timeAgo(h.ts)}`));
+      main.append(u, meta);
+      const del = document.createElement("button");
+      del.className = "row-del";
+      del.innerHTML = "×";
+      del.title = "Remove";
+      del.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.history = state.history.filter(x => x.id !== h.id);
+        renderSidebar(); persist();
+      });
+      item.append(chipEl, main, del);
+      const loadFromHistory = () => {
+        addTab(Object.assign(clone(h.snapshot), { savedRef: null }));
+        toast("Loaded from history");
+      };
+      item.addEventListener("click", loadFromHistory);
+      makeActivatable(item, loadFromHistory);
+      content.appendChild(item);
+    });
+  }
+}
+
+function openSavedRequest(col, req) {
+  // if already open in a tab, switch to it
+  const existing = state.tabs.find(t => t.savedRef && t.savedRef.reqId === req.id);
+  if (existing) { switchTab(existing.id); return; }
+  addTab(Object.assign(clone(req.req), { name: req.name, savedRef: { colId: col.id, reqId: req.id } }));
+}
+
+$$(".sb-tab").forEach(b => b.addEventListener("click", () => {
+  state.sidebarTab = b.dataset.sbtab;
+  renderSidebar(); persist();
+}));
+
+/* ---------------- save to collection ---------------- */
+function openSaveModal() {
+  const tab = activeTab();
+  const wrap = document.createElement("div");
+
+  const nameRow = document.createElement("div");
+  nameRow.className = "form-row";
+  const nameLab = document.createElement("label");
+  nameLab.textContent = "Request name";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.value = tab.name || tabDisplayName(tab);
+  nameRow.append(nameLab, nameInput);
+
+  const colRow = document.createElement("div");
+  colRow.className = "form-row";
+  const colLab = document.createElement("label");
+  colLab.textContent = "Collection";
+  const colSel = document.createElement("select");
+  state.collections.forEach(c => {
+    const o = document.createElement("option");
+    o.value = c.id; o.textContent = c.name;
+    colSel.appendChild(o);
+  });
+  const newOpt = document.createElement("option");
+  newOpt.value = "__new__"; newOpt.textContent = "＋ Create new collection…";
+  colSel.appendChild(newOpt);
+  if (tab.savedRef && state.collections.some(c => c.id === tab.savedRef.colId)) colSel.value = tab.savedRef.colId;
+  else if (!state.collections.length) colSel.value = "__new__";
+
+  const newColRow = document.createElement("div");
+  newColRow.className = "form-row";
+  const newColLab = document.createElement("label");
+  newColLab.textContent = "New collection name";
+  const newColInput = document.createElement("input");
+  newColInput.type = "text"; newColInput.placeholder = "My API";
+  newColRow.append(newColLab, newColInput);
+  const syncNewVis = () => { newColRow.style.display = colSel.value === "__new__" ? "" : "none"; };
+  colSel.addEventListener("change", syncNewVis);
+
+  colRow.append(colLab, colSel);
+  wrap.append(nameRow, colRow, newColRow);
+  syncNewVis();
+
+  const doSave = () => {
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    let col;
+    if (colSel.value === "__new__") {
+      const cn = newColInput.value.trim();
+      if (!cn) { newColInput.focus(); return; }
+      col = { id: uid(), name: cn, open: true, requests: [] };
+      state.collections.push(col);
+    } else {
+      col = state.collections.find(c => c.id === colSel.value);
+      if (!col) return;
+    }
+    tab.name = name;
+    const snap = snapshotRequest(tab);
+    snap.name = name;
+    const existing = tab.savedRef && col.id === tab.savedRef.colId
+      ? col.requests.find(r => r.id === tab.savedRef.reqId) : null;
+    if (existing) {
+      existing.name = name;
+      existing.req = snap;
+      toast("Request updated");
+    } else {
+      const entry = { id: uid(), name, req: snap };
+      col.requests.push(entry);
+      tab.savedRef = { colId: col.id, reqId: entry.id };
+      toast("Saved to " + col.name);
+    }
+    col.open = true;
+    closeModal();
+    renderAll(); persistNow();
+  };
+  nameInput.addEventListener("keydown", e => { if (e.key === "Enter") doSave(); });
+
+  openModal({
+    title: tab.savedRef ? "Save request" : "Save request to collection",
+    body: wrap,
+    foot: [mkBtn("Cancel", "btn-ghost", closeModal), mkBtn("Save", "btn-primary", doSave)],
+    onOpen: () => { nameInput.focus(); nameInput.select(); },
+  });
+}
+
+/* ---------------- environments ---------------- */
+function renderEnvSelect() {
+  const sel = $("#env-select");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = ""; none.textContent = "No environment";
+  sel.appendChild(none);
+  state.environments.forEach(e => {
+    const o = document.createElement("option");
+    o.value = e.id; o.textContent = e.name;
+    sel.appendChild(o);
+  });
+  sel.value = state.environments.some(e => e.id === state.activeEnvId) ? state.activeEnvId : "";
+}
+$("#env-select").addEventListener("change", (e) => {
+  state.activeEnvId = e.target.value;
+  persist();
+});
+
+function openEnvModal() {
+  let selectedId = state.activeEnvId || (state.environments[0] && state.environments[0].id) || null;
+
+  const layout = document.createElement("div");
+  layout.className = "env-layout";
+  const listEl = document.createElement("div");
+  listEl.className = "env-list";
+  const varsEl = document.createElement("div");
+  varsEl.className = "env-vars";
+  layout.append(listEl, varsEl);
+
+  const rebuild = () => {
+    listEl.innerHTML = "";
+    const addBtn = document.createElement("button");
+    addBtn.className = "text-btn";
+    addBtn.textContent = "+ New environment";
+    addBtn.style.width = "100%";
+    addBtn.style.textAlign = "left";
+    addBtn.addEventListener("click", () => {
+      promptModal("New environment", "Environment name", "", (name) => {
+        const env = { id: uid(), name, vars: [] };
+        state.environments.push(env);
+        selectedId = env.id;
+        renderEnvSelect(); persist();
+        openEnvModalRefresh();
+      }, "Create");
+    });
+    listEl.appendChild(addBtn);
+
+    state.environments.forEach(env => {
+      const item = document.createElement("div");
+      item.className = "env-item" + (env.id === selectedId ? " active" : "");
+      const nm = document.createElement("span");
+      nm.className = "ename";
+      nm.textContent = env.name;
+      nm.title = "Double-click to rename";
+      const del = document.createElement("button");
+      del.className = "row-del";
+      del.innerHTML = "×";
+      del.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        confirmModal("Delete environment", `Delete "${env.name}"?`, () => {
+          state.environments = state.environments.filter(x => x.id !== env.id);
+          if (state.activeEnvId === env.id) state.activeEnvId = "";
+          if (selectedId === env.id) selectedId = state.environments[0] ? state.environments[0].id : null;
+          renderEnvSelect(); persist();
+          openEnvModalRefresh();
+        });
+      });
+      item.append(nm, del);
+      item.addEventListener("click", () => { selectedId = env.id; rebuild(); });
+      makeActivatable(item, () => { selectedId = env.id; rebuild(); });
+      item.addEventListener("dblclick", () => {
+        promptModal("Rename environment", "Environment name", env.name, (name) => {
+          env.name = name; renderEnvSelect(); persist(); openEnvModalRefresh();
+        }, "Rename");
+      });
+      listEl.appendChild(item);
+    });
+
+    varsEl.innerHTML = "";
+    const env = state.environments.find(e => e.id === selectedId);
+    if (!env) {
+      const d = document.createElement("div");
+      d.className = "empty-state";
+      d.innerHTML = "Create an environment to define variables,<br>then use them anywhere as <b>{{name}}</b>.";
+      varsEl.appendChild(d);
+      return;
+    }
+    const lab = document.createElement("div");
+    lab.className = "sb-toolbar";
+    lab.style.padding = "0 0 8px";
+    lab.innerHTML = `<span class="label">Variables in “${escHtml(env.name)}”</span>`;
+    varsEl.appendChild(lab);
+    const kv = document.createElement("div");
+    varsEl.appendChild(kv);
+    env.vars = env.vars || [];
+    renderKVEditor(kv, env.vars, {
+      keyPlaceholder: "variable", valuePlaceholder: "value",
+      onChange: () => persist(),
+    });
+    const hint = document.createElement("div");
+    hint.className = "body-note";
+    hint.textContent = "Use variables in URLs, params, headers, body and auth as {{variable}}.";
+    varsEl.appendChild(hint);
+  };
+
+  let modalBody;
+  const openEnvModalRefresh = () => {
+    if (modalBody && document.body.contains(modalBody)) rebuild();
+    else {
+      const m = openModal({
+        title: "Environments", wide: true, body: layout,
+        foot: [mkBtn("Done", "btn-primary", () => { closeModal(); renderEnvSelect(); })],
+      });
+      modalBody = m.body;
+      rebuild();
+    }
+  };
+  openEnvModalRefresh();
+}
+$("#btn-envs").addEventListener("click", openEnvModal);
+
+/* ---------------- code generation ---------------- */
+function shq(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+function jsq(s) { return JSON.stringify(String(s)); }
+function pyq(s) { return JSON.stringify(String(s)); }
+
+function genCurl(r) {
+  const lines = ["curl -X " + r.method + " " + shq(r.url)];
+  Object.entries(r.headers).forEach(([k, v]) => lines.push("  -H " + shq(k + ": " + v)));
+  if (["json", "text", "xml"].includes(r.bodyKind)) {
+    lines.push("  --data-raw " + shq(r.bodyText));
+  } else if (r.bodyKind === "form") {
+    const p = new URLSearchParams();
+    r.formRows.forEach(row => p.append(row.key, row.value));
+    lines.push("  --data " + shq(p.toString()));
+  } else if (r.bodyKind === "multipart") {
+    r.formRows.forEach(row => {
+      lines.push("  -F " + shq(row.key + (row.type === "file" ? "=@" + (row._file ? row._file.name : "file") : "=" + row.value)));
+    });
+  }
+  return lines.join(" \\\n");
+}
+function genFetch(r) {
+  const opts = { method: r.method };
+  const lines = [];
+  lines.push(`const response = await fetch(${jsq(r.url)}, {`);
+  lines.push(`  method: ${jsq(r.method)},`);
+  const hk = Object.entries(r.headers);
+  if (hk.length) {
+    lines.push("  headers: {");
+    hk.forEach(([k, v]) => lines.push(`    ${jsq(k)}: ${jsq(v)},`));
+    lines.push("  },");
+  }
+  if (["json", "text", "xml"].includes(r.bodyKind)) {
+    lines.push(`  body: ${jsq(r.bodyText)},`);
+  } else if (r.bodyKind === "form") {
+    const p = new URLSearchParams();
+    r.formRows.forEach(row => p.append(row.key, row.value));
+    lines.push(`  body: ${jsq(p.toString())},`);
+  } else if (r.bodyKind === "multipart") {
+    lines.length = 0;
+    lines.push("const form = new FormData();");
+    r.formRows.forEach(row => {
+      if (row.type === "file") lines.push(`form.append(${jsq(row.key)}, fileInput.files[0]); // attach your file`);
+      else lines.push(`form.append(${jsq(row.key)}, ${jsq(row.value)});`);
+    });
+    lines.push("");
+    lines.push(`const response = await fetch(${jsq(r.url)}, {`);
+    lines.push(`  method: ${jsq(r.method)},`);
+    if (hk.length) {
+      lines.push("  headers: {");
+      hk.forEach(([k, v]) => lines.push(`    ${jsq(k)}: ${jsq(v)},`));
+      lines.push("  },");
+    }
+    lines.push("  body: form,");
+  }
+  lines.push("});");
+  lines.push("const data = await response.json();");
+  lines.push("console.log(data);");
+  return lines.join("\n");
+}
+// emit a real Python literal by walking the parsed value — a text-replace of
+// true/false/null would also corrupt string values containing those words
+function pyLiteral(v, indent) {
+  const pad = " ".repeat(indent), pad2 = " ".repeat(indent + 4);
+  if (v === null) return "None";
+  if (v === true) return "True";
+  if (v === false) return "False";
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : "None";
+  if (typeof v === "string") return pyq(v);
+  if (Array.isArray(v)) {
+    if (!v.length) return "[]";
+    return "[\n" + v.map(x => pad2 + pyLiteral(x, indent + 4)).join(",\n") + "\n" + pad + "]";
+  }
+  const keys = Object.keys(v);
+  if (!keys.length) return "{}";
+  return "{\n" + keys.map(k => pad2 + pyq(k) + ": " + pyLiteral(v[k], indent + 4)).join(",\n") + "\n" + pad + "}";
+}
+
+function genPython(r) {
+  const lines = ["import requests", ""];
+  lines.push(`url = ${pyq(r.url)}`);
+  const hk = Object.entries(r.headers);
+  if (hk.length) {
+    lines.push("headers = {");
+    hk.forEach(([k, v]) => lines.push(`    ${pyq(k)}: ${pyq(v)},`));
+    lines.push("}");
+  }
+  let dataArg = "";
+  if (r.bodyKind === "json") {
+    let parsed, parseOk = false;
+    try { parsed = JSON.parse(r.bodyText); parseOk = true; } catch {}
+    if (parseOk) {
+      lines.push("payload = " + pyLiteral(parsed, 0));
+      dataArg = ", json=payload";
+    } else {
+      lines.push(`payload = ${pyq(r.bodyText)}`);
+      dataArg = ", data=payload";
+    }
+  } else if (["text", "xml"].includes(r.bodyKind)) {
+    lines.push(`payload = ${pyq(r.bodyText)}`);
+    dataArg = ", data=payload";
+  } else if (r.bodyKind === "form") {
+    lines.push("payload = {");
+    r.formRows.forEach(row => lines.push(`    ${pyq(row.key)}: ${pyq(row.value)},`));
+    lines.push("}");
+    dataArg = ", data=payload";
+  } else if (r.bodyKind === "multipart") {
+    lines.push("files = {");
+    r.formRows.forEach(row => {
+      if (row.type === "file") lines.push(`    ${pyq(row.key)}: open(${pyq(row._file ? row._file.name : "file.bin")}, "rb"),`);
+      else lines.push(`    ${pyq(row.key)}: (None, ${pyq(row.value)}),`);
+    });
+    lines.push("}");
+    dataArg = ", files=files";
+  }
+  lines.push("");
+  lines.push(`response = requests.request(${pyq(r.method)}, url${hk.length ? ", headers=headers" : ""}${dataArg})`);
+  lines.push("print(response.status_code)");
+  lines.push("print(response.text)");
+  return lines.join("\n");
+}
+
+function openCodegenModal() {
+  const tab = activeTab();
+  const r = buildResolvedRequest(tab);
+  if (!r.url) { toast("Enter a URL first", "err"); return; }
+
+  const wrap = document.createElement("div");
+  const seg = document.createElement("div");
+  seg.className = "seg";
+  seg.style.marginBottom = "12px";
+  const pre = document.createElement("pre");
+  pre.className = "codegen-pre";
+  const gens = { curl: genCurl, fetch: genFetch, python: genPython };
+  let current = "curl";
+  const rebuild = () => {
+    pre.textContent = gens[current](r);
+    $$("button", seg).forEach(b => b.classList.toggle("active", b.dataset.g === current));
+  };
+  [["curl", "cURL"], ["fetch", "JavaScript fetch"], ["python", "Python requests"]].forEach(([v, l]) => {
+    const b = document.createElement("button");
+    b.dataset.g = v;
+    b.textContent = l;
+    b.addEventListener("click", () => { current = v; rebuild(); });
+    seg.appendChild(b);
+  });
+  wrap.append(seg, pre);
+  rebuild();
+
+  openModal({
+    title: "Code snippet", wide: true, body: wrap,
+    foot: [
+      mkBtn("Copy", "btn-ghost", async () => {
+        try { await navigator.clipboard.writeText(pre.textContent); toast("Copied"); }
+        catch { toast("Copy failed", "err"); }
+      }),
+      mkBtn("Close", "btn-primary", closeModal),
+    ],
+  });
+}
+$("#btn-code").addEventListener("click", openCodegenModal);
+
+/* ---------------- cURL import ---------------- */
+function tokenizeCurl(s) {
+  const tokens = [];
+  let cur = "", i = 0, q = null, ansi = false;
+  const ANSI_ESC = { n: "\n", t: "\t", r: "\r", a: "\x07", b: "\b", f: "\f", v: "\v", "0": "\0", "\\": "\\", "'": "'", '"': '"' };
+  s = s.replace(/\\\r?\n/g, " ").replace(/\^\r?\n/g, " ").trim();
+  // Chrome's "Copy as cURL (cmd)" escapes with carets (^"...^", \^" for inner
+  // quotes) — un-escape them so the normal quote handling below applies
+  if (/\^"/.test(s)) s = s.replace(/\^(.)/g, "$1");
+  while (i < s.length) {
+    const c = s[i];
+    if (ansi) { // ANSI-C $'...' quoting
+      if (c === "'") ansi = false;
+      else if (c === "\\" && i + 1 < s.length) {
+        const n = s[++i];
+        if (n === "x" && /^[0-9a-fA-F]{2}/.test(s.slice(i + 1))) { cur += String.fromCharCode(parseInt(s.substr(i + 1, 2), 16)); i += 2; }
+        else if (n === "u" && /^[0-9a-fA-F]{4}/.test(s.slice(i + 1))) { cur += String.fromCharCode(parseInt(s.substr(i + 1, 4), 16)); i += 4; }
+        else cur += (n in ANSI_ESC ? ANSI_ESC[n] : "\\" + n);
+      }
+      else cur += c;
+    } else if (q) {
+      if (c === q) { q = null; }
+      else if (c === "\\" && q === '"' && i + 1 < s.length) { cur += s[++i]; }
+      else cur += c;
+    } else if (c === "$" && s[i + 1] === "'") {
+      ansi = true; i++;
+    } else if (c === "'" || c === '"') {
+      q = c;
+    } else if (/\s/.test(c)) {
+      if (cur !== "") { tokens.push(cur); cur = ""; }
+    } else if (c === "\\" && i + 1 < s.length) {
+      cur += s[++i];
+    } else {
+      cur += c;
+    }
+    i++;
+  }
+  if (cur !== "") tokens.push(cur);
+  return tokens;
+}
+function parseCurl(cmd) {
+  const tokens = tokenizeCurl(cmd);
+  if (!tokens.length) return null;
+  if (/^curl$/i.test(tokens[0])) tokens.shift();
+
+  const out = { method: "", url: "", headers: [], body: "", form: [], auth: null };
+  let i = 0;
+  const next = () => tokens[++i];
+  while (i < tokens.length) {
+    const t = tokens[i];
+    if (t === "-X" || t === "--request") out.method = (next() || "GET").toUpperCase();
+    else if (t === "-H" || t === "--header") {
+      const h = next() || "";
+      const ci = h.indexOf(":");
+      if (ci > 0) out.headers.push({ enabled: true, key: h.slice(0, ci).trim(), value: h.slice(ci + 1).trim() });
+    }
+    else if (["-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--json"].includes(t)) {
+      const d = next() || "";
+      out.body = out.body ? out.body + "&" + d : d; // curl joins repeated -d with &
+      if (t === "--json") out.headers.push({ enabled: true, key: "Content-Type", value: "application/json" });
+    }
+    else if (t === "--data-urlencode") {
+      const v = next() || "";
+      const ei0 = v.indexOf("=");
+      const enc = ei0 >= 0 ? v.slice(0, ei0) + "=" + encodeURIComponent(v.slice(ei0 + 1)) : encodeURIComponent(v);
+      out.body = out.body ? out.body + "&" + enc : enc;
+      out.urlencoded = true;
+    }
+    else if (t === "-F" || t === "--form") {
+      const f = next() || "";
+      const ei = f.indexOf("=");
+      if (ei > 0) {
+        const val = f.slice(ei + 1);
+        out.form.push({ enabled: true, key: f.slice(0, ei), value: val.startsWith("@") ? "" : val, type: val.startsWith("@") ? "file" : "text" });
+      }
+    }
+    else if (t === "-u" || t === "--user") {
+      const u = next() || "";
+      const ci2 = u.indexOf(":");
+      out.auth = { type: "basic", username: ci2 >= 0 ? u.slice(0, ci2) : u, password: ci2 >= 0 ? u.slice(ci2 + 1) : "" };
+    }
+    else if (t === "--url") out.url = next() || "";
+    else if (t === "-L" || t === "--location" || t === "--compressed" || t === "-s" || t === "--silent" || t === "-k" || t === "--insecure" || t === "-i" || t === "--include" || t === "-v" || t === "--verbose") { /* ignore */ }
+    else if (t === "-A" || t === "--user-agent") out.headers.push({ enabled: true, key: "User-Agent", value: next() || "" });
+    else if (t === "-e" || t === "--referer") out.headers.push({ enabled: true, key: "Referer", value: next() || "" });
+    else if (t === "-b" || t === "--cookie") out.headers.push({ enabled: true, key: "Cookie", value: next() || "" });
+    else if (t === "-o" || t === "--output" || t === "-m" || t === "--max-time" || t === "--connect-timeout") next();
+    else if (!t.startsWith("-") && !out.url) out.url = t;
+    i++;
+  }
+  if (!out.url) return null;
+  if (!out.method) out.method = (out.body || out.form.length) ? "POST" : "GET";
+
+  const tabData = {
+    method: ["GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS"].includes(out.method) ? out.method : "GET",
+    url: out.url,
+    headers: out.headers,
+    params: [],
+    bodyType: "none",
+    bodyContent: "",
+    formData: [],
+  };
+  syncParamsFromUrl(tabData);
+  if (out.form.length) {
+    tabData.bodyType = "multipart";
+    tabData.formData = out.form;
+  } else if (out.body) {
+    if (out.urlencoded) tabData.bodyType = "form";
+    else {
+      try { JSON.parse(out.body); tabData.bodyType = "json"; }
+      catch {
+        const ct = out.headers.find(h => h.key.toLowerCase() === "content-type");
+        tabData.bodyType = ct && /urlencoded/i.test(ct.value) ? "form" : "text";
+      }
+    }
+    if (tabData.bodyType === "form") {
+      tabData.formData = parseQueryString(out.body).map(p => ({ ...p, type: "text" }));
+      tabData.bodyContent = "";
+    } else {
+      tabData.bodyContent = out.body;
+    }
+  }
+  if (out.auth) tabData.auth = Object.assign(newTab({}).auth, out.auth);
+  return tabData;
+}
+
+/* ---------------- import / export ---------------- */
+function openImportModal() {
+  const wrap = document.createElement("div");
+
+  const seg = document.createElement("div");
+  seg.className = "seg";
+  seg.style.marginBottom = "14px";
+  const paneCurl = document.createElement("div");
+  const paneJson = document.createElement("div");
+
+  let mode = "curl";
+  const rebuild = () => {
+    $$("button", seg).forEach(b => b.classList.toggle("active", b.dataset.m === mode));
+    paneCurl.style.display = mode === "curl" ? "" : "none";
+    paneJson.style.display = mode === "json" ? "" : "none";
+  };
+  [["curl", "cURL command"], ["json", "Relay export (JSON)"]].forEach(([v, l]) => {
+    const b = document.createElement("button");
+    b.dataset.m = v; b.textContent = l;
+    b.addEventListener("click", () => { mode = v; rebuild(); });
+    seg.appendChild(b);
+  });
+
+  // cURL pane
+  const curlRow = document.createElement("div");
+  curlRow.className = "form-row";
+  const curlLab = document.createElement("label");
+  curlLab.textContent = "Paste a cURL command";
+  const curlTa = document.createElement("textarea");
+  curlTa.placeholder = "curl -X POST https://api.example.com/users -H 'Content-Type: application/json' -d '{\"name\":\"Ada\"}'";
+  curlTa.spellcheck = false;
+  curlRow.append(curlLab, curlTa);
+  paneCurl.appendChild(curlRow);
+
+  // JSON pane
+  const jsonP = document.createElement("p");
+  jsonP.style.cssText = "color:var(--text-muted);line-height:1.6;margin-bottom:12px";
+  jsonP.textContent = "Import a JSON file previously exported from Relay. Collections and environments will be added alongside your existing ones.";
+  const pickBtn = mkBtn("Choose file…", "btn-ghost", () => $("#import-file").click());
+  paneJson.append(jsonP, pickBtn);
+
+  wrap.append(seg, paneCurl, paneJson);
+  rebuild();
+
+  const doImport = () => {
+    if (mode === "curl") {
+      const parsed = parseCurl(curlTa.value.trim());
+      if (!parsed) { toast("Could not parse that cURL command", "err"); return; }
+      closeModal();
+      addTab(parsed);
+      toast("Imported cURL as a new request");
+    } else {
+      $("#import-file").click();
+    }
+  };
+
+  openModal({
+    title: "Import", body: wrap,
+    foot: [mkBtn("Cancel", "btn-ghost", closeModal), mkBtn("Import", "btn-primary", doImport)],
+    onOpen: () => curlTa.focus(),
+  });
+}
+$("#btn-import").addEventListener("click", openImportModal);
+
+$("#import-file").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || (typeof data !== "object")) throw new Error("bad format");
+      let nCols = 0, nEnvs = 0;
+      (Array.isArray(data.collections) ? data.collections : []).forEach(c => {
+        const col = { id: uid(), name: String(c.name || "Imported"), open: false, requests: [] };
+        (Array.isArray(c.requests) ? c.requests : []).forEach(r => {
+          if (r && r.req && r.req.url != null) {
+            const base = newTab(r.req);
+            col.requests.push({ id: uid(), name: String(r.name || "Request"), req: snapshotRequest(base) });
+          }
+        });
+        state.collections.push(col);
+        nCols++;
+      });
+      (Array.isArray(data.environments) ? data.environments : []).forEach(en => {
+        state.environments.push({
+          id: uid(),
+          name: String(en.name || "Imported env"),
+          vars: (Array.isArray(en.vars) ? en.vars : []).map(v => ({ enabled: v.enabled !== false, key: String(v.key || ""), value: String(v.value || "") })),
+        });
+        nEnvs++;
+      });
+      if (!nCols && !nEnvs) { toast("Nothing to import in that file", "err"); return; }
+      closeModal();
+      renderSidebar(); renderEnvSelect(); persist();
+      toast(`Imported ${nCols} collection(s), ${nEnvs} environment(s)`);
+    } catch {
+      toast("Invalid import file", "err");
+    }
+  };
+  reader.readAsText(file);
+});
+
+$("#btn-export").addEventListener("click", () => {
+  if (!state.collections.length && !state.environments.length) {
+    toast("Nothing to export yet", "err");
+    return;
+  }
+  const data = {
+    app: "relay",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    collections: state.collections,
+    environments: state.environments,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "relay-export.json";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  toast("Exported collections & environments");
+});
+
+/* ---------------- settings ---------------- */
+function openSettingsModal() {
+  const wrap = document.createElement("div");
+
+  const toRow = document.createElement("div");
+  toRow.className = "form-row";
+  const toLab = document.createElement("label");
+  toLab.textContent = "Request timeout (seconds, 0 = no timeout)";
+  const toInput = document.createElement("input");
+  toInput.type = "text";
+  toInput.value = state.settings.timeoutSec;
+  toRow.append(toLab, toInput);
+
+  const themeRow = document.createElement("div");
+  themeRow.className = "form-row";
+  const themeLab = document.createElement("label");
+  themeLab.textContent = "Theme";
+  const themeSel = document.createElement("select");
+  [["dark", "Dark"], ["light", "Light"]].forEach(([v, l]) => {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = l;
+    themeSel.appendChild(o);
+  });
+  themeSel.value = state.settings.theme;
+  themeRow.append(themeLab, themeSel);
+
+  const dangerRow = document.createElement("div");
+  dangerRow.className = "form-row";
+  const dangerLab = document.createElement("label");
+  dangerLab.textContent = "Danger zone";
+  const clearBtn = mkBtn("Erase all Relay data", "btn-ghost", () => {
+    confirmModal("Erase everything", "Delete all tabs, collections, history, environments and settings stored in this browser?", () => {
+      try { localStorage.removeItem(LS_KEY); } catch {}
+      location.reload();
+    }, "Erase");
+  });
+  clearBtn.style.color = "var(--danger)";
+  clearBtn.style.borderColor = "var(--danger)";
+  dangerRow.append(dangerLab, clearBtn);
+
+  const about = document.createElement("p");
+  about.style.cssText = "color:var(--text-faint);font-size:11.5px;line-height:1.6;margin-top:16px";
+  about.textContent = "Relay is a self-contained REST client. Everything is stored locally in your browser (localStorage) — nothing leaves your machine except the requests you send.";
+
+  wrap.append(toRow, themeRow, dangerRow, about);
+
+  openModal({
+    title: "Settings", body: wrap,
+    foot: [mkBtn("Cancel", "btn-ghost", closeModal), mkBtn("Save", "btn-primary", () => {
+      const n = parseInt(toInput.value, 10);
+      state.settings.timeoutSec = Number.isFinite(n) && n >= 0 ? n : 30;
+      state.settings.theme = themeSel.value;
+      applyTheme(); persistNow(); closeModal();
+      toast("Settings saved");
+    })],
+  });
+}
+$("#btn-settings").addEventListener("click", openSettingsModal);
+
+/* ---------------- top-level events ---------------- */
+$("#method-select").addEventListener("change", (e) => {
+  const tab = activeTab();
+  tab.method = e.target.value;
+  renderTabbar(); renderRequestPanel(); persist();
+});
+$("#url-input").addEventListener("input", (e) => {
+  const tab = activeTab();
+  tab.url = e.target.value;
+  syncParamsFromUrl(tab);
+  if (tab.reqTab === "params") renderRequestPanel();
+  else updateBadges();
+  renderTabbar(); persist();
+});
+$("#url-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendRequest();
+});
+$$(".req-tab").forEach(b => b.addEventListener("click", () => {
+  activeTab().reqTab = b.dataset.reqtab;
+  renderRequestPanel(); persist();
+}));
+$("#btn-send").addEventListener("click", sendRequest);
+$("#btn-save").addEventListener("click", openSaveModal);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { if (openModalEl) closeModal(); return; }
+  if (openModalEl) return; // don't send/save behind an open modal
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key === "Enter") { e.preventDefault(); sendRequest(); }
+  else if (mod && (e.key === "s" || e.key === "S")) { e.preventDefault(); openSaveModal(); }
+});
+
+/* divider drag */
+(function initDivider() {
+  const divider = $("#divider");
+  const area = $("#req-body-area");
+  divider.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = area.getBoundingClientRect().height;
+    const ws = $("#workspace").getBoundingClientRect();
+    const onMove = (ev) => {
+      const h = Math.min(Math.max(64, startH + (ev.clientY - startY)), ws.height - 220);
+      area.style.height = h + "px";
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    document.body.style.cursor = "row-resize";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+})();
+
+/* ---------------- init ---------------- */
+function renderAll() {
+  renderTabbar();
+  renderRequestPanel();
+  renderResponse();
+  renderSidebar();
+  updateSendUI();
+}
+applyTheme();
+renderEnvSelect();
+renderAll();
+</script>
+</body>
+</html>
