@@ -1,13 +1,13 @@
-# Relay
+# Whisper
 
 A small, fast REST client — like Postman or Insomnia, but self-contained and dependency-free. Build requests, organize them into collections, use environments with `{{variables}}`, import cURL commands, and generate code snippets. Everything is stored locally; nothing leaves your machine except the requests you send.
 
-Relay ships as two pieces:
+Whisper ships as two pieces:
 
 | File | What it is |
 |---|---|
 | `rest-client.html` | The entire UI — one HTML file, vanilla JS, no build step. Works opened directly in any browser. |
-| `relay-server.ts` | The **native engine** — a tiny Deno server that embeds the UI, serves it at `http://127.0.0.1:7788`, and sends requests natively. |
+| `whisper-server.ts` | The **native engine** — a tiny Deno server that embeds the UI, serves it at `http://127.0.0.1:7788`, and sends requests natively. |
 
 Opened directly in a browser, the page runs in *browser mode* and some requests/headers are restricted by browser security. Run through the compiled companion app, requests are made natively: any host, any header, every response header visible (including `Set-Cookie`).
 
@@ -28,7 +28,7 @@ Opened directly in a browser, the page runs in *browser mode* and some requests/
 Grab a compiled binary (see Releases or build below) and double-click — your browser opens with the app. Or run from source:
 
 ```bash
-deno run --allow-net --allow-read --allow-run relay-server.ts
+deno run --allow-net --allow-read --allow-run whisper-server.ts
 ```
 
 Or just open `rest-client.html` in a browser (browser mode).
@@ -38,9 +38,9 @@ Or just open `rest-client.html` in a browser (browser mode).
 Requires [Deno](https://deno.com) 2.x. From the repo root:
 
 ```bash
-deno compile --allow-net --allow-read --allow-run --include rest-client.html --target x86_64-pc-windows-msvc --output dist/Relay-Windows.exe relay-server.ts
-deno compile --allow-net --allow-read --allow-run --include rest-client.html --target aarch64-apple-darwin --output dist/Relay-macOS-AppleSilicon relay-server.ts
-deno compile --allow-net --allow-read --allow-run --include rest-client.html --target x86_64-apple-darwin --output dist/Relay-macOS-Intel relay-server.ts
+deno compile --allow-net --allow-read --allow-run --include rest-client.html --target x86_64-pc-windows-msvc --output dist/Whisper-Windows.exe whisper-server.ts
+deno compile --allow-net --allow-read --allow-run --include rest-client.html --target aarch64-apple-darwin --output dist/Whisper-macOS-AppleSilicon whisper-server.ts
+deno compile --allow-net --allow-read --allow-run --include rest-client.html --target x86_64-apple-darwin --output dist/Whisper-macOS-Intel whisper-server.ts
 ```
 
 All three targets cross-compile from any OS. The HTML is embedded, so each binary is fully self-contained. `dist/README.txt` is the end-user guide to include alongside the binaries (covers the unsigned-app prompts on Windows SmartScreen and macOS Gatekeeper).

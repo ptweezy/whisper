@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Relay — REST Client</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5bd6'/%3E%3Ctext x='16' y='23' font-family='Arial,sans-serif' font-size='19' font-weight='800' fill='white' text-anchor='middle'%3ER%3C/text%3E%3C/svg%3E">
+<title>Whisper — REST Client</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b5bd6'/%3E%3Ctext x='16' y='23' font-family='Arial,sans-serif' font-size='16' font-weight='800' fill='white' text-anchor='middle'%3EW%3C/text%3E%3C/svg%3E">
 <style>
   /* ============ Design tokens ============ */
   :root, [data-theme="light"] {
@@ -553,7 +553,7 @@
   <!-- ================= Sidebar ================= -->
   <aside id="sidebar">
     <div class="sb-header">
-      <div class="brand"><span class="brand-mark">R</span> Relay</div>
+      <div class="brand"><span class="brand-mark">W</span> Whisper</div>
       <button class="icon-btn" id="btn-theme" title="Toggle theme"></button>
       <button class="icon-btn" id="btn-settings" title="Settings">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4"/></svg>
@@ -633,7 +633,7 @@
 <script>
 "use strict";
 /* =====================================================================
-   Relay — a single-file REST client
+   Whisper — a single-file REST client
    ===================================================================== */
 
 /* ---------------- utilities ---------------- */
@@ -699,7 +699,7 @@ const STATUS_TEXT = {
 };
 
 /* ---------------- state ---------------- */
-const LS_KEY = "relay.state.v1";
+const LS_KEY = "whisper.state.v1";
 const MAX_HISTORY = 100;
 const MAX_DISPLAY_CHARS = 1500000;
 
@@ -782,7 +782,8 @@ function defaultState() {
 
 let state;
 try {
-  const raw = localStorage.getItem(LS_KEY);
+  // fall back to the pre-rename key so existing data carries over
+  const raw = localStorage.getItem(LS_KEY) || localStorage.getItem("relay.state.v1");
   state = raw ? JSON.parse(raw) : null;
 } catch { state = null; }
 if (!state || !Array.isArray(state.tabs)) state = defaultState();
@@ -1440,8 +1441,8 @@ function buildResolvedRequest(tab) {
   return { url, method, headers, bodyKind, bodyText, formRows };
 }
 
-/* ---------------- native engine (Relay companion) ---------------- */
-// When this page is served by the Relay companion app, requests are routed
+/* ---------------- native engine (Whisper companion) ---------------- */
+// When this page is served by the Whisper companion app, requests are routed
 // through its local proxy — free of browser CORS restrictions. When the file
 // is opened directly in a browser, everything still works via plain fetch().
 let proxyInfo = null;
@@ -1453,16 +1454,16 @@ function updateEngineChip() {
     ? "Native engine — connected"
     : "Browser mode";
   chip.title = proxyInfo
-    ? "Requests are sent by the Relay app itself, with every response header visible."
-    : "This page is running directly in your browser, which may restrict some requests and hide some response headers. Run it through the Relay app for full functionality.";
+    ? "Requests are sent by the Whisper app itself, with every response header visible."
+    : "This page is running directly in your browser, which may restrict some requests and hide some response headers. Run it through the Whisper app for full functionality.";
 }
 
 async function reprobeProxy() {
   try {
-    const r = await fetch("/relay-proxy/info", { cache: "no-store" });
+    const r = await fetch("/whisper-proxy/info", { cache: "no-store" });
     if (r.ok) {
       const j = await r.json();
-      if (j && j.relay && j.token) { proxyInfo = j; updateEngineChip(); return true; }
+      if (j && j.whisper && j.token) { proxyInfo = j; updateEngineChip(); return true; }
     }
   } catch { /* not running under the companion — browser mode */ }
   return false;
@@ -1488,25 +1489,25 @@ async function sendDirect(r, body, signal) {
 }
 
 async function sendViaProxy(r, body, signal, isRetry) {
-  const res = await fetch("/relay-proxy", {
+  const res = await fetch("/whisper-proxy", {
     method: "POST",
     cache: "no-store",
     signal,
     body,
     headers: {
-      "X-Relay-Token": proxyInfo.token,
-      "X-Relay-Url": encodeURIComponent(r.url),
-      "X-Relay-Method": r.method,
-      "X-Relay-Headers": b64EncodeUtf8(JSON.stringify(r.headers)),
+      "X-Whisper-Token": proxyInfo.token,
+      "X-Whisper-Url": encodeURIComponent(r.url),
+      "X-Whisper-Method": r.method,
+      "X-Whisper-Headers": b64EncodeUtf8(JSON.stringify(r.headers)),
     },
   });
-  const metaRaw = res.headers.get("x-relay-meta");
+  const metaRaw = res.headers.get("x-whisper-meta");
   if (!metaRaw) {
     // usually a stale session token: the companion was restarted while this
     // page stayed open — re-probe for the new token and retry once
     if (!isRetry && await reprobeProxy()) return sendViaProxy(r, body, signal, true);
-    if (res.status === 403) throw new Error("The Relay app was restarted — reload this page to reconnect.");
-    throw new Error("The Relay engine returned an unexpected response (HTTP " + res.status + ").");
+    if (res.status === 403) throw new Error("The Whisper app was restarted — reload this page to reconnect.");
+    throw new Error("The Whisper engine returned an unexpected response (HTTP " + res.status + ").");
   }
   const meta = JSON.parse(b64DecodeUtf8(metaRaw));
   if (meta.error) throw new Error(meta.error);
@@ -1735,7 +1736,7 @@ function renderResponse() {
       h.textContent = "Could not send request";
       p.innerHTML = `<code>${escHtml(resp.error.message)}</code><br><br>
         The request failed. Common causes:<br>
-        • Browser security restrictions on this page — running Relay through its app avoids them.<br>
+        • Browser security restrictions on this page — running Whisper through its app avoids them.<br>
         • The host is unreachable, the connection was refused, or the URL is invalid.<br>
         • Calling an <code>http://</code> URL from an <code>https://</code> page.`;
     }
@@ -1836,7 +1837,7 @@ function renderResponse() {
       const hint = document.createElement("div");
       hint.className = "body-note";
       hint.style.padding = "10px 16px";
-      hint.textContent = "Note: in browser mode some response headers may be hidden by the browser. The Relay app shows them all.";
+      hint.textContent = "Note: in browser mode some response headers may be hidden by the browser. The Whisper app shows them all.";
       wrap.appendChild(hint);
     }
     return;
@@ -2630,7 +2631,7 @@ function openImportModal() {
     paneCurl.style.display = mode === "curl" ? "" : "none";
     paneJson.style.display = mode === "json" ? "" : "none";
   };
-  [["curl", "cURL command"], ["json", "Relay export (JSON)"]].forEach(([v, l]) => {
+  [["curl", "cURL command"], ["json", "Whisper export (JSON)"]].forEach(([v, l]) => {
     const b = document.createElement("button");
     b.dataset.m = v; b.textContent = l;
     b.addEventListener("click", () => { mode = v; rebuild(); });
@@ -2651,7 +2652,7 @@ function openImportModal() {
   // JSON pane
   const jsonP = document.createElement("p");
   jsonP.style.cssText = "color:var(--text-muted);line-height:1.6;margin-bottom:12px";
-  jsonP.textContent = "Import a JSON file previously exported from Relay. Collections and environments will be added alongside your existing ones.";
+  jsonP.textContent = "Import a JSON file previously exported from Whisper. Collections and environments will be added alongside your existing ones.";
   const pickBtn = mkBtn("Choose file…", "btn-ghost", () => $("#import-file").click());
   paneJson.append(jsonP, pickBtn);
 
@@ -2724,7 +2725,7 @@ $("#btn-export").addEventListener("click", () => {
     return;
   }
   const data = {
-    app: "relay",
+    app: "whisper",
     version: 1,
     exportedAt: new Date().toISOString(),
     collections: state.collections,
@@ -2733,7 +2734,7 @@ $("#btn-export").addEventListener("click", () => {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "relay-export.json";
+  a.download = "whisper-export.json";
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
@@ -2770,7 +2771,7 @@ function openSettingsModal() {
   dangerRow.className = "form-row";
   const dangerLab = document.createElement("label");
   dangerLab.textContent = "Danger zone";
-  const clearBtn = mkBtn("Erase all Relay data", "btn-ghost", () => {
+  const clearBtn = mkBtn("Erase all Whisper data", "btn-ghost", () => {
     confirmModal("Erase everything", "Delete all tabs, collections, history, environments and settings stored in this browser?", () => {
       try { localStorage.removeItem(LS_KEY); } catch {}
       location.reload();
@@ -2782,7 +2783,7 @@ function openSettingsModal() {
 
   const about = document.createElement("p");
   about.style.cssText = "color:var(--text-faint);font-size:11.5px;line-height:1.6;margin-top:16px";
-  about.textContent = "Relay is a self-contained REST client. Everything is stored locally in your browser (localStorage) — nothing leaves your machine except the requests you send.";
+  about.textContent = "Whisper is a self-contained REST client. Everything is stored locally in your browser (localStorage) — nothing leaves your machine except the requests you send.";
 
   wrap.append(toRow, themeRow, dangerRow, about);
 

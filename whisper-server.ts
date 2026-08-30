@@ -1,12 +1,12 @@
 /**
- * Relay engine — tiny local companion for rest-client.html.
+ * Whisper engine — tiny local companion for rest-client.html.
  *
  * Serves the UI at http://127.0.0.1:<port> and proxies its HTTP requests
  * natively, so they are not subject to browser CORS rules.
  *
  * Compile (from the folder containing rest-client.html):
  *   deno compile --allow-net --allow-read --allow-run --include rest-client.html \
- *     --target x86_64-pc-windows-msvc --output dist/Relay-Windows relay-server.ts
+ *     --target x86_64-pc-windows-msvc --output dist/Whisper-Windows whisper-server.ts
  *   (targets: x86_64-pc-windows-msvc, aarch64-apple-darwin, x86_64-apple-darwin)
  */
 
@@ -48,7 +48,7 @@ function metaHeader(obj: unknown): string {
 function fail(message: string): Response {
   return new Response(null, {
     status: 200,
-    headers: { "x-relay-meta": metaHeader({ error: message }), "cache-control": "no-store" },
+    headers: { "x-whisper-meta": metaHeader({ error: message }), "cache-control": "no-store" },
   });
 }
 // "fetch failed" alone is useless — surface the underlying cause chain
@@ -65,14 +65,14 @@ function describeError(e: unknown): string {
 
 async function proxy(req: Request): Promise<Response> {
   let target = "";
-  try { target = decodeURIComponent(req.headers.get("x-relay-url") || ""); }
+  try { target = decodeURIComponent(req.headers.get("x-whisper-url") || ""); }
   catch { return fail("Invalid target URL encoding."); }
   if (!/^https?:\/\//i.test(target)) return fail("Only http:// and https:// URLs are supported.");
 
-  const method = (req.headers.get("x-relay-method") || "GET").toUpperCase();
+  const method = (req.headers.get("x-whisper-method") || "GET").toUpperCase();
   let headerMap: Record<string, string> = {};
   try {
-    const raw = req.headers.get("x-relay-headers");
+    const raw = req.headers.get("x-whisper-headers");
     if (raw) headerMap = JSON.parse(b64DecodeUtf8(raw));
   } catch { return fail("Invalid header payload."); }
 
@@ -151,7 +151,7 @@ async function proxy(req: Request): Promise<Response> {
   for (const c of chunks) { bodyBytes.set(c, off); off += c.byteLength; }
 
   const respHeaders: Record<string, string> = {
-    "x-relay-meta": metaHeader({
+    "x-whisper-meta": metaHeader({
       status: res.status,
       statusText: res.statusText,
       url: res.url,
@@ -173,13 +173,13 @@ function handler(req: Request): Response | Promise<Response> {
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
     });
   }
-  if (req.method === "GET" && url.pathname === "/relay-proxy/info") {
-    return new Response(JSON.stringify({ relay: true, version: VERSION, token }), {
+  if (req.method === "GET" && url.pathname === "/whisper-proxy/info") {
+    return new Response(JSON.stringify({ whisper: true, version: VERSION, token }), {
       headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
   }
-  if (req.method === "POST" && url.pathname === "/relay-proxy") {
-    if (req.headers.get("x-relay-token") !== token) return new Response("Forbidden", { status: 403 });
+  if (req.method === "POST" && url.pathname === "/whisper-proxy") {
+    if (req.headers.get("x-whisper-token") !== token) return new Response("Forbidden", { status: 403 });
     return proxy(req);
   }
   return new Response("Not found", { status: 404 });
@@ -196,7 +196,7 @@ for (let attempt = 0; attempt < 25; attempt++) {
       // protocol instead of printing a stack trace and a bare 500
       onError: (e) => new Response(null, {
         status: 200,
-        headers: { "x-relay-meta": metaHeader({ error: "Relay engine error: " + describeError(e) }), "cache-control": "no-store" },
+        headers: { "x-whisper-meta": metaHeader({ error: "Whisper engine error: " + describeError(e) }), "cache-control": "no-store" },
       }),
     }, handler);
     break;
@@ -206,14 +206,14 @@ for (let attempt = 0; attempt < 25; attempt++) {
   }
 }
 if (!server) {
-  console.error("Could not find a free port near 7788 — is Relay already running?");
+  console.error("Could not find a free port near 7788 — is Whisper already running?");
   Deno.exit(1);
 }
 
 const appUrl = `http://127.0.0.1:${port}/`;
 console.log("");
 console.log("  ┌──────────────────────────────────────────────┐");
-console.log("  │  Relay — REST client                         │");
+console.log("  │  Whisper — REST client                         │");
 console.log(`  │  Running at ${appUrl.padEnd(33)}│`);
 console.log("  │                                              │");
 console.log("  │  Keep this window open while you use it.     │");
