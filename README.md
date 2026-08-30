@@ -1,5 +1,7 @@
 # Whisper
 
+[![Build & Release](https://github.com/ptweezy/whisper-rest-client/actions/workflows/build.yml/badge.svg)](https://github.com/ptweezy/whisper-rest-client/actions/workflows/build.yml)
+
 A small, fast REST client — like Postman or Insomnia, but self-contained and dependency-free. Build requests, organize them into collections, use environments with `{{variables}}`, import cURL commands, and generate code snippets. Everything is stored locally; nothing leaves your machine except the requests you send.
 
 Whisper ships as two pieces:
@@ -25,7 +27,7 @@ Opened directly in a browser, the page runs in *browser mode* and some requests/
 
 ## Run it
 
-Grab a compiled binary (see Releases or build below) and double-click — your browser opens with the app. Or run from source:
+Download the zip for your platform from [Releases](https://github.com/ptweezy/whisper-rest-client/releases/latest), unzip, and double-click — your browser opens with the app. Or run from source:
 
 ```bash
 deno run --allow-net --allow-read --allow-run whisper-server.ts
@@ -44,6 +46,8 @@ deno compile --allow-net --allow-read --allow-run --include rest-client.html --t
 ```
 
 All three targets cross-compile from any OS. The HTML is embedded, so each binary is fully self-contained. `dist/README.txt` is the end-user guide to include alongside the binaries (covers the unsigned-app prompts on Windows SmartScreen and macOS Gatekeeper).
+
+CI does this automatically: every push to `main` builds all three targets and uploads them as workflow artifacts, and pushing a `v*` tag (e.g. `git tag v1.0.1 && git push --tags`) publishes a GitHub Release with the zips attached.
 
 ## Security model
 

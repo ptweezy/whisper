@@ -23,7 +23,8 @@ How to run — Windows
 
 How to run — macOS
 ------------------
-1. Open Terminal in the folder you downloaded the file to, then run:
+1. If macOS says the file can't be executed, open Terminal in the folder
+   you downloaded it to and run:
      chmod +x Whisper-macOS-AppleSilicon     (or Whisper-macOS-Intel)
 2. First launch: right-click the file in Finder and choose "Open",
    then confirm — or run it from Terminal:

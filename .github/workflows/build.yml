@@ -1,0 +1,56 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check
+        run: deno check whisper-server.ts
+
+      - name: Compile all targets
+        run: |
+          deno compile --allow-net --allow-read --allow-run --include rest-client.html \
+            --target x86_64-pc-windows-msvc --output dist/Whisper-Windows.exe whisper-server.ts
+          deno compile --allow-net --allow-read --allow-run --include rest-client.html \
+            --target aarch64-apple-darwin --output dist/Whisper-macOS-AppleSilicon whisper-server.ts
+          deno compile --allow-net --allow-read --allow-run --include rest-client.html \
+            --target x86_64-apple-darwin --output dist/Whisper-macOS-Intel whisper-server.ts
+
+      - name: Package zips
+        run: |
+          cd dist
+          chmod +x Whisper-macOS-AppleSilicon Whisper-macOS-Intel
+          zip -j Whisper-Windows.zip Whisper-Windows.exe README.txt
+          zip -j Whisper-macOS-AppleSilicon.zip Whisper-macOS-AppleSilicon README.txt
+          zip -j Whisper-macOS-Intel.zip Whisper-macOS-Intel README.txt
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ github.sha }}
+          path: dist/*.zip
+          retention-days: 14
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
