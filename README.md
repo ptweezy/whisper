@@ -1,6 +1,6 @@
 # Whisper
 
-[![Build & Release](https://github.com/ptweezy/whisper-rest-client/actions/workflows/build.yml/badge.svg)](https://github.com/ptweezy/whisper-rest-client/actions/workflows/build.yml)
+[![Build & Release](https://github.com/ptweezy/whisper/actions/workflows/build.yml/badge.svg)](https://github.com/ptweezy/whisper/actions/workflows/build.yml)
 
 A small, fast REST client — like Postman or Insomnia, but self-contained and dependency-free. Build requests, organize them into collections, use environments with `{{variables}}`, import cURL commands, and generate code snippets. Everything is stored locally; nothing leaves your machine except the requests you send.
 
@@ -27,7 +27,7 @@ Opened directly in a browser, the page runs in *browser mode* and some requests/
 
 ## Run it
 
-Download the zip for your platform from [Releases](https://github.com/ptweezy/whisper-rest-client/releases/latest), unzip, and double-click — your browser opens with the app. Or run from source:
+Download the zip for your platform from [Releases](https://github.com/ptweezy/whisper/releases/latest), unzip, and double-click — your browser opens with the app. Or run from source:
 
 ```bash
 deno run --allow-net --allow-read --allow-run whisper-server.ts
