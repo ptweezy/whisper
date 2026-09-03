@@ -1441,38 +1441,58 @@ function buildResolvedRequest(tab) {
   return { url, method, headers, bodyKind, bodyText, formRows };
 }
 
-/* ---------------- native engine (Whisper companion) ---------------- */
-// When this page is served by the Whisper companion app, requests are routed
-// through its local proxy — free of browser CORS restrictions. When the file
-// is opened directly in a browser, everything still works via plain fetch().
-let proxyInfo = null;
+/* ---------------- native engine (Whisper desktop app) ---------------- */
+// Inside the Whisper desktop app, requests are sent by the app's Rust core
+// over Tauri IPC — no browser restrictions on hosts or headers. Opened as a
+// plain file in a browser, the page falls back to fetch() ("browser mode").
+function tauriCore() {
+  const t = window.__TAURI__;
+  return t && t.core && typeof t.core.invoke === "function" ? t.core : null;
+}
+const isNativeApp = () => !!tauriCore();
 
 function updateEngineChip() {
+  const native = isNativeApp();
   const chip = $("#engine-chip");
-  chip.classList.toggle("native", !!proxyInfo);
-  $("#engine-label").textContent = proxyInfo
-    ? "Native engine — connected"
-    : "Browser mode";
-  chip.title = proxyInfo
+  chip.classList.toggle("native", native);
+  $("#engine-label").textContent = native ? "Native engine — connected" : "Browser mode";
+  chip.title = native
     ? "Requests are sent by the Whisper app itself, with every response header visible."
-    : "This page is running directly in your browser, which may restrict some requests and hide some response headers. Run it through the Whisper app for full functionality.";
+    : "This page is running directly in your browser, which may restrict some requests and hide some response headers. Use the Whisper desktop app for full functionality.";
 }
 
-async function reprobeProxy() {
-  try {
-    const r = await fetch("/whisper-proxy/info", { cache: "no-store" });
-    if (r.ok) {
-      const j = await r.json();
-      if (j && j.whisper && j.token) { proxyInfo = j; updateEngineChip(); return true; }
+function b64FromBytes(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+// RFC 7578: percent-encode the characters that would break a quoted field name
+const mpQuote = (str) => String(str).replace(/["\r\n]/g, (m) => encodeURIComponent(m));
+
+// Turn whatever fetch() would have sent into raw bytes for the native engine.
+// Multipart bodies are assembled here, since there is no browser to do it.
+async function bodyToBytes(body) {
+  if (body == null) return { bytes: null, contentType: null };
+  if (typeof body === "string") return { bytes: new TextEncoder().encode(body), contentType: null };
+  if (body instanceof FormData) {
+    const boundary = "----WhisperFormBoundary" + uid() + uid();
+    const parts = [];
+    for (const [name, value] of body.entries()) {
+      parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${mpQuote(name)}"`);
+      if (value instanceof Blob) {
+        parts.push(`; filename="${mpQuote(value.name || "blob")}"\r\nContent-Type: ${value.type || "application/octet-stream"}\r\n\r\n`, value, "\r\n");
+      } else {
+        parts.push(`\r\n\r\n${value}\r\n`);
+      }
     }
-  } catch { /* not running under the companion — browser mode */ }
-  return false;
+    parts.push(`--${boundary}--\r\n`);
+    const buf = await new Blob(parts).arrayBuffer();
+    return { bytes: new Uint8Array(buf), contentType: "multipart/form-data; boundary=" + boundary };
+  }
+  const buf = await new Blob([body]).arrayBuffer();
+  return { bytes: new Uint8Array(buf), contentType: null };
 }
-
-const proxyDetection = (async function detectProxy() {
-  if (!/^https?:$/.test(location.protocol)) return;
-  await reprobeProxy();
-})();
 
 async function sendDirect(r, body, signal) {
   const res = await fetch(r.url, { method: r.method, headers: r.headers, body, signal, redirect: "follow" });
@@ -1488,41 +1508,74 @@ async function sendDirect(r, body, signal) {
   };
 }
 
-async function sendViaProxy(r, body, signal, isRetry) {
-  const res = await fetch("/whisper-proxy", {
-    method: "POST",
-    cache: "no-store",
-    signal,
-    body,
-    headers: {
-      "X-Whisper-Token": proxyInfo.token,
-      "X-Whisper-Url": encodeURIComponent(r.url),
-      "X-Whisper-Method": r.method,
-      "X-Whisper-Headers": b64EncodeUtf8(JSON.stringify(r.headers)),
-    },
-  });
-  const metaRaw = res.headers.get("x-whisper-meta");
-  if (!metaRaw) {
-    // usually a stale session token: the companion was restarted while this
-    // page stayed open — re-probe for the new token and retry once
-    if (!isRetry && await reprobeProxy()) return sendViaProxy(r, body, signal, true);
-    if (res.status === 403) throw new Error("The Whisper app was restarted — reload this page to reconnect.");
-    throw new Error("The Whisper engine returned an unexpected response (HTTP " + res.status + ").");
+async function sendViaTauri(r, body, signal) {
+  const core = tauriCore();
+  const { bytes, contentType } = await bodyToBytes(body);
+  const headers = Object.entries(r.headers);
+  if (contentType && !hasHeader(r.headers, "content-type")) headers.push(["Content-Type", contentType]);
+  if (signal.aborted) throw new Error("Request cancelled.");
+  const id = uid();
+  const onAbort = () => { core.invoke("cancel_request", { id }).catch(() => {}); };
+  signal.addEventListener("abort", onAbort, { once: true });
+  let buf;
+  try {
+    buf = await core.invoke("send_request", {
+      meta: {
+        id,
+        url: r.url,
+        method: r.method,
+        headers,
+        timeoutMs: Math.max(0, (Number(state.settings.timeoutSec) || 0) * 1000),
+      },
+      bodyB64: bytes ? b64FromBytes(bytes) : null,
+    });
+  } catch (e) {
+    throw new Error(typeof e === "string" ? e : (e && e.message) || String(e));
+  } finally {
+    signal.removeEventListener("abort", onAbort);
   }
-  const meta = JSON.parse(b64DecodeUtf8(metaRaw));
+  if (!(buf instanceof ArrayBuffer)) buf = new Uint8Array(buf).buffer;
+  const metaLen = new DataView(buf).getUint32(0);
+  const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, metaLen)));
   if (meta.error) throw new Error(meta.error);
-  const blob = await res.blob();
+  const bodyBytes = new Uint8Array(buf, 4 + metaLen);
   const headersList = Array.isArray(meta.headers) ? meta.headers : [];
   const ctPair = headersList.find(p => p[0].toLowerCase() === "content-type");
+  const ct = ctPair ? ctPair[1] : "";
   return {
     status: meta.status,
     statusText: meta.statusText || "",
     headersList,
     finalUrl: meta.url || r.url,
     redirected: !!meta.redirected,
-    contentType: ctPair ? ctPair[1] : "",
-    blob,
+    contentType: ct,
+    blob: new Blob([bodyBytes], { type: ct }),
   };
+}
+
+// Clipboard and file saving go through the native core when available —
+// webviews don't reliably allow either from page script.
+async function copyText(text) {
+  const core = tauriCore();
+  if (core) { try { await core.invoke("copy_text", { text }); return true; } catch { /* fall through */ } }
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+async function saveBlob(blob, filename) {
+  const core = tauriCore();
+  if (core) {
+    try {
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const path = await core.invoke("save_file", { suggestedName: filename, dataB64: b64FromBytes(bytes) });
+      return !!path;
+    } catch (e) { toast(typeof e === "string" ? e : "Could not save file", "err"); return false; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  return true;
 }
 
 const inFlight = new Map(); // tabId -> { controller, timer, token }
@@ -1546,10 +1599,6 @@ async function sendRequest() {
   }
   const r = buildResolvedRequest(tab);
   if (!r.url) { toast("Enter a URL first", "err"); $("#url-input").focus(); return; }
-
-  // don't race the startup probe — an instant Ctrl+Enter after load should
-  // still use the native engine when the companion is serving us
-  try { await proxyDetection; } catch {}
 
   const controller = new AbortController();
   const timeoutSec = Number(state.settings.timeoutSec) || 0;
@@ -1579,11 +1628,11 @@ async function sendRequest() {
     body = fd;
   }
 
-  const viaProxy = !!proxyInfo;
+  const viaNative = isNativeApp();
   const t0 = performance.now();
   try {
-    const info = viaProxy
-      ? await sendViaProxy(r, body, controller.signal)
+    const info = viaNative
+      ? await sendViaTauri(r, body, controller.signal)
       : await sendDirect(r, body, controller.signal);
     const durationMs = performance.now() - t0;
     const contentType = info.contentType || "";
@@ -1607,7 +1656,7 @@ async function sendRequest() {
         isTextual,
         bodyText: truncated ? bodyFullText.slice(0, MAX_DISPLAY_CHARS) : bodyFullText,
         truncated,
-        engine: viaProxy ? "native" : "browser",
+        engine: viaNative ? "native" : "browser",
         _blob: info.blob,
       };
       tab.respTab = "body";
@@ -1624,7 +1673,7 @@ async function sendRequest() {
           message: err && err.message ? err.message : String(err),
         },
         durationMs,
-        engine: viaProxy ? "native" : "browser",
+        engine: viaNative ? "native" : "browser",
         requestUrl: r.url,
       };
       if (!reason) pushHistory(tab, { status: 0, durationMs });
@@ -1769,11 +1818,10 @@ function renderResponse() {
   const actions = document.createElement("div");
   actions.className = "resp-actions";
   const copyBtn = mkBtn("Copy", "btn-ghost", async () => {
-    try { await navigator.clipboard.writeText(resp.bodyText || ""); toast("Response copied"); }
-    catch { toast("Copy failed", "err"); }
+    if (await copyText(resp.bodyText || "")) toast("Response copied"); else toast("Copy failed", "err");
   });
   copyBtn.style.padding = "5px 12px";
-  const dlBtn = mkBtn("Download", "btn-ghost", () => downloadResponse(resp));
+  const dlBtn = mkBtn(isNativeApp() ? "Save…" : "Download", "btn-ghost", () => downloadResponse(resp));
   dlBtn.style.padding = "5px 12px";
   actions.append(copyBtn, dlBtn);
   bar.appendChild(actions);
@@ -1860,7 +1908,7 @@ function renderResponse() {
     d.className = "resp-empty";
     d.style.padding = "30px";
     d.innerHTML = `<div>Binary response (<b>${escHtml(resp.contentType || "unknown type")}</b>, ${fmtBytes(resp.size)})</div>`;
-    const dl = mkBtn("Download response", "btn-primary", () => downloadResponse(resp));
+    const dl = mkBtn(isNativeApp() ? "Save response…" : "Download response", "btn-primary", () => downloadResponse(resp));
     d.appendChild(dl);
     wrap.appendChild(d);
     return;
@@ -1923,14 +1971,10 @@ function extFromContentType(ct) {
   if (/plain/i.test(ct)) return ".txt";
   return "";
 }
-function downloadResponse(resp) {
-  if (!resp._blob) { toast("Nothing to download", "err"); return; }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(resp._blob);
-  a.download = "response" + extFromContentType(resp.contentType);
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+async function downloadResponse(resp) {
+  if (!resp._blob) { toast("Nothing to save", "err"); return; }
+  const ok = await saveBlob(resp._blob, "response" + extFromContentType(resp.contentType));
+  if (ok && isNativeApp()) toast("Response saved");
 }
 
 /* ---------------- sidebar ---------------- */
@@ -2480,8 +2524,7 @@ function openCodegenModal() {
     title: "Code snippet", wide: true, body: wrap,
     foot: [
       mkBtn("Copy", "btn-ghost", async () => {
-        try { await navigator.clipboard.writeText(pre.textContent); toast("Copied"); }
-        catch { toast("Copy failed", "err"); }
+        if (await copyText(pre.textContent)) toast("Copied"); else toast("Copy failed", "err");
       }),
       mkBtn("Close", "btn-primary", closeModal),
     ],
@@ -2732,13 +2775,7 @@ $("#btn-export").addEventListener("click", () => {
     environments: state.environments,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "whisper-export.json";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-  toast("Exported collections & environments");
+  saveBlob(blob, "whisper-export.json").then(ok => { if (ok) toast("Exported collections & environments"); });
 });
 
 /* ---------------- settings ---------------- */
@@ -2867,6 +2904,7 @@ function renderAll() {
 applyTheme();
 renderEnvSelect();
 renderAll();
+updateEngineChip();
 </script>
 </body>
 </html>

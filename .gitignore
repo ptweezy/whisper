@@ -1,3 +1,5 @@
-# compiled binaries and distribution zips are built locally (see README.md)
-dist/*
-!dist/README.txt
+# Tauri build output and generated files
+src-tauri/target/
+src-tauri/icons/
+src-tauri/gen/
+node_modules/

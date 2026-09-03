@@ -2,16 +2,21 @@
 
 [![Build & Release](https://github.com/ptweezy/whisper/actions/workflows/build.yml/badge.svg)](https://github.com/ptweezy/whisper/actions/workflows/build.yml)
 
-A small, fast REST client — like Postman or Insomnia, but self-contained and dependency-free. Build requests, organize them into collections, use environments with `{{variables}}`, import cURL commands, and generate code snippets. Everything is stored locally; nothing leaves your machine except the requests you send.
+A small, fast REST client — like Postman or Insomnia, but a lightweight native desktop app with no account, no cloud, and no telemetry. Build requests, organize them into collections, use environments with `{{variables}}`, import cURL commands, and generate code snippets. Everything is stored locally; nothing leaves your machine except the requests you send.
 
-Whisper ships as two pieces:
+## Install
 
-| File | What it is |
+Download the installer for your platform from [Releases](https://github.com/ptweezy/whisper/releases/latest):
+
+| Platform | File |
 |---|---|
-| `rest-client.html` | The entire UI — one HTML file, vanilla JS, no build step. Works opened directly in any browser. |
-| `whisper-server.ts` | The **native engine** — a tiny Deno server that embeds the UI, serves it at `http://127.0.0.1:7788`, and sends requests natively. |
+| Windows 10/11 | `Whisper_x.y.z_x64-setup.exe` (or the `.msi`) |
+| macOS (Apple Silicon and Intel) | `Whisper_x.y.z_universal.dmg` |
 
-Opened directly in a browser, the page runs in *browser mode* and some requests/headers are restricted by browser security. Run through the compiled companion app, requests are made natively: any host, any header, every response header visible (including `Set-Cookie`).
+The builds are not code-signed, so the OS will warn on first launch:
+
+- **Windows:** SmartScreen shows "Windows protected your PC" → click *More info* → *Run anyway*.
+- **macOS:** Drag Whisper to Applications. If macOS says the app "cannot be opened" or "is damaged", open Terminal and run `xattr -cr /Applications/Whisper.app`, then open it again (or right-click → *Open* → *Open*).
 
 ## Features
 
@@ -19,36 +24,38 @@ Opened directly in a browser, the page runs in *browser mode* and some requests/
 - Body types: JSON (validation + beautify), text, XML, form-urlencoded, multipart with files
 - Auth helpers: Basic, Bearer, API key (header or query)
 - Environments with `{{variable}}` substitution across URL, params, headers, body, and auth
-- Collections and request history, persisted in localStorage, with JSON export/import
+- Collections and request history, persisted locally, with JSON export/import
 - cURL import (bash quoting, ANSI-C `$'…'`, Windows cmd caret style, `--data-urlencode`)
 - Code generation: cURL, JavaScript `fetch`, Python `requests`
-- Response viewer: pretty JSON with highlighting, raw, HTML preview, image preview, full header list, copy/download, cancel and timeout
+- Response viewer: pretty JSON with highlighting, raw, HTML preview, image preview, every response header (including `Set-Cookie`), copy/save, cancel and timeout
 - Dark/light theme, keyboard shortcuts (`Ctrl+Enter` send, `Ctrl+S` save)
 
-## Run it
+## How it's built
 
-Download the zip for your platform from [Releases](https://github.com/ptweezy/whisper/releases/latest), unzip, and double-click — your browser opens with the app. Or run from source:
+| Path | What it is |
+|---|---|
+| `ui/index.html` | The entire UI — one HTML file, vanilla JS, no build step or dependencies. |
+| `src-tauri/` | A [Tauri 2](https://tauri.app) shell. `src/lib.rs` is the native HTTP engine (`reqwest`) the UI calls over IPC, plus clipboard and save-file commands. |
+| `app-icon.png` | Source icon; `tauri icon` generates the platform formats from it. |
+
+Requests are made natively by the Rust core, so there are no browser restrictions on hosts or headers. `ui/index.html` also works opened directly in a browser ("browser mode"), where ordinary web-page limits apply.
+
+## Develop
+
+Requires [Rust](https://rustup.rs) and the [Tauri prerequisites](https://tauri.app/start/prerequisites/) for your OS, plus the Tauri CLI (`cargo install tauri-cli --version "^2"` or `npm i -g @tauri-apps/cli`).
 
 ```bash
-deno run --allow-net --allow-read --allow-run whisper-server.ts
+tauri icon app-icon.png   # once, generates src-tauri/icons
+tauri dev                 # run with hot reload of ui/
+tauri build               # produce installers in src-tauri/target/release/bundle
 ```
 
-Or just open `rest-client.html` in a browser (browser mode).
+## Release
 
-## Build the binaries
-
-Requires [Deno](https://deno.com) 2.x. From the repo root:
+CI builds Windows (`windows-latest`) and a universal macOS binary (`macos-latest`) on every push, uploading the installers as workflow artifacts. Pushing a `v*` tag publishes them as a GitHub Release:
 
 ```bash
-deno compile --allow-net --allow-read --allow-run --include rest-client.html --target x86_64-pc-windows-msvc --output dist/Whisper-Windows.exe whisper-server.ts
-deno compile --allow-net --allow-read --allow-run --include rest-client.html --target aarch64-apple-darwin --output dist/Whisper-macOS-AppleSilicon whisper-server.ts
-deno compile --allow-net --allow-read --allow-run --include rest-client.html --target x86_64-apple-darwin --output dist/Whisper-macOS-Intel whisper-server.ts
+git tag v1.1.0 && git push origin v1.1.0
 ```
 
-All three targets cross-compile from any OS. The HTML is embedded, so each binary is fully self-contained. `dist/README.txt` is the end-user guide to include alongside the binaries (covers the unsigned-app prompts on Windows SmartScreen and macOS Gatekeeper).
-
-CI does this automatically: every push to `main` builds all three targets and uploads them as workflow artifacts, and pushing a `v*` tag (e.g. `git tag v1.0.1 && git push --tags`) publishes a GitHub Release with the zips attached.
-
-## Security model
-
-The companion listens on `127.0.0.1` only. Its request engine requires a per-session random token that only the served page knows (cross-origin pages can't read it — no CORS headers are ever emitted), and a Host-header allowlist blocks DNS-rebinding. Other devices and websites cannot use the engine.
+Bump `version` in `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml` to match.

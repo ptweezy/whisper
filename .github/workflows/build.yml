@@ -2,10 +2,9 @@ name: Build & Release
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -13,44 +12,63 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            args: ""
+          - os: macos-latest
+            name: macos
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: v2.x
+          node-version: 22
 
-      - name: Type-check
-        run: deno check whisper-server.ts
-
-      - name: Compile all targets
-        run: |
-          deno compile --allow-net --allow-read --allow-run --include rest-client.html \
-            --target x86_64-pc-windows-msvc --output dist/Whisper-Windows.exe whisper-server.ts
-          deno compile --allow-net --allow-read --allow-run --include rest-client.html \
-            --target aarch64-apple-darwin --output dist/Whisper-macOS-AppleSilicon whisper-server.ts
-          deno compile --allow-net --allow-read --allow-run --include rest-client.html \
-            --target x86_64-apple-darwin --output dist/Whisper-macOS-Intel whisper-server.ts
-
-      - name: Package zips
-        run: |
-          cd dist
-          chmod +x Whisper-macOS-AppleSilicon Whisper-macOS-Intel
-          zip -j Whisper-Windows.zip Whisper-Windows.exe README.txt
-          zip -j Whisper-macOS-AppleSilicon.zip Whisper-macOS-AppleSilicon README.txt
-          zip -j Whisper-macOS-Intel.zip Whisper-macOS-Intel README.txt
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: whisper-${{ github.sha }}
-          path: dist/*.zip
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Generate icons
+        run: tauri icon app-icon.png
+
+      - name: Run Rust tests
+        if: matrix.os == 'windows-latest'
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Build installers
+        run: tauri build ${{ matrix.args }}
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          mkdir -p out
+          find src-tauri/target -path '*/bundle/nsis/*.exe' -exec cp {} out/ \;
+          find src-tauri/target -path '*/bundle/msi/*.msi' -exec cp {} out/ \;
+          find src-tauri/target -path '*/bundle/dmg/*.dmg' -exec cp {} out/ \;
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ matrix.name }}
+          path: out/*
           retention-days: 14
 
       - name: Publish release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: out/*
           generate_release_notes: true
