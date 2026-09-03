@@ -168,6 +168,7 @@ async fn perform(
             redirected,
             headers,
             error: None,
+            error_kind: None,
         },
         bytes,
     ))
