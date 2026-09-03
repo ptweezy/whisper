@@ -1,7 +1,7 @@
 //! Whisper's native core: the HTTP engine the UI talks to over Tauri IPC,
 //! plus clipboard and save-file helpers that webviews can't do reliably.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -14,6 +14,11 @@ use tokio::sync::oneshot;
 
 const MAX_RESPONSE_BYTES: usize = 256 * 1024 * 1024;
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
+const MSG_TIMEOUT: &str = "Request timed out.";
+const MSG_CANCELLED: &str = "Request cancelled.";
+/// The UI's own timer owns the deadline and classifies the outcome; the
+/// reqwest timeout is only a backstop, so give it a margin to fire second.
+const TIMEOUT_MARGIN_MS: u64 = 2000;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,11 +42,18 @@ struct RespMeta {
     headers: Vec<(String, String)>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// "timeout" | "cancelled" | "network" — lets the UI classify without parsing text
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_kind: Option<String>,
 }
 
 /// In-flight requests by id, so the UI's Cancel button can abort them.
 #[derive(Default)]
-struct Inflight(Mutex<HashMap<String, oneshot::Sender<()>>>);
+struct Inflight {
+    active: Mutex<HashMap<String, oneshot::Sender<()>>>,
+    /// Cancels that raced ahead of their request's registration.
+    cancelled_early: Mutex<HashSet<String>>,
+}
 
 /// Wire format handed back to the page:
 /// `[u32 big-endian meta length][meta JSON][raw body bytes]`
@@ -54,16 +66,26 @@ fn pack(meta: &RespMeta, body: &[u8]) -> Vec<u8> {
     out
 }
 
+fn error_meta(message: String) -> RespMeta {
+    let kind = if message == MSG_TIMEOUT {
+        "timeout"
+    } else if message == MSG_CANCELLED {
+        "cancelled"
+    } else {
+        "network"
+    };
+    RespMeta { error: Some(message), error_kind: Some(kind.to_string()), ..Default::default() }
+}
+
 fn fail(message: impl Into<String>) -> Response {
-    let meta = RespMeta { error: Some(message.into()), ..Default::default() };
-    Response::new(pack(&meta, &[]))
+    Response::new(pack(&error_meta(message.into()), &[]))
 }
 
 /// reqwest's top-level messages are vague ("error sending request") — walk the
 /// source chain so the user sees the real cause (DNS, TLS, connection refused…).
 fn describe(e: reqwest::Error) -> String {
     if e.is_timeout() {
-        return "Request timed out.".to_string();
+        return MSG_TIMEOUT.to_string();
     }
     let mut msg = e.to_string();
     let mut src = std::error::Error::source(&e);
@@ -108,18 +130,22 @@ async fn perform(
     }
     let headers = build_headers(&meta.headers)?;
 
-    let mut req = client.request(method, url.clone()).headers(headers);
+    let mut req = client.request(method, url).headers(headers);
     if let Some(b) = body {
         req = req.body(b);
     }
     if meta.timeout_ms > 0 {
-        req = req.timeout(Duration::from_millis(meta.timeout_ms));
+        req = req.timeout(Duration::from_millis(meta.timeout_ms + TIMEOUT_MARGIN_MS));
     }
 
-    let mut resp = req.send().await.map_err(describe)?;
+    // compare against the URL reqwest actually sends (it strips user:pass@ into
+    // an Authorization header), otherwise every such request looks redirected
+    let req = req.build().map_err(describe)?;
+    let sent = req.url().clone();
+    let mut resp = client.execute(req).await.map_err(describe)?;
     let status = resp.status();
     let final_url = resp.url().to_string();
-    let redirected = resp.url() != &url;
+    let redirected = resp.url() != &sent;
     let headers: Vec<(String, String)> = resp
         .headers()
         .iter()
@@ -154,17 +180,25 @@ async fn send_request(
     client: State<'_, reqwest::Client>,
     inflight: State<'_, Inflight>,
 ) -> Result<Response, String> {
-    let body = match body_b64 {
-        Some(s) => Some(B64.decode(s).map_err(|_| "Invalid request body encoding.".to_string())?),
-        None => None,
-    };
+    // register before any real work (base64 decode of a large body can take a
+    // while) so a Cancel that arrives immediately is not lost
     let (tx, rx) = oneshot::channel::<()>();
-    inflight.0.lock().unwrap().insert(meta.id.clone(), tx);
+    if inflight.cancelled_early.lock().unwrap().remove(&meta.id) {
+        return Ok(fail(MSG_CANCELLED));
+    }
+    inflight.active.lock().unwrap().insert(meta.id.clone(), tx);
+
     let result = tokio::select! {
-        r = perform(client.inner(), &meta, body) => r,
-        _ = rx => Err("Request cancelled.".to_string()),
+        r = async {
+            let body = match body_b64 {
+                Some(s) => Some(B64.decode(s).map_err(|_| "Invalid request body encoding.".to_string())?),
+                None => None,
+            };
+            perform(client.inner(), &meta, body).await
+        } => r,
+        _ = rx => Err(MSG_CANCELLED.to_string()),
     };
-    inflight.0.lock().unwrap().remove(&meta.id);
+    inflight.active.lock().unwrap().remove(&meta.id);
     Ok(match result {
         Ok((m, b)) => Response::new(pack(&m, &b)),
         Err(e) => fail(e),
@@ -173,8 +207,16 @@ async fn send_request(
 
 #[tauri::command]
 fn cancel_request(id: String, inflight: State<'_, Inflight>) {
-    if let Some(tx) = inflight.0.lock().unwrap().remove(&id) {
+    if let Some(tx) = inflight.active.lock().unwrap().remove(&id) {
         let _ = tx.send(());
+    } else {
+        // the cancel raced ahead of registration — remember it so the request
+        // aborts on arrival (bounded: stray ids from already-finished requests)
+        let mut early = inflight.cancelled_early.lock().unwrap();
+        if early.len() > 256 {
+            early.clear();
+        }
+        early.insert(id);
     }
 }
 
@@ -239,6 +281,7 @@ mod tests {
             redirected: false,
             headers: vec![("content-type".into(), "text/plain".into())],
             error: None,
+            error_kind: None,
         };
         let out = pack(&meta, b"hello");
         let len = u32::from_be_bytes([out[0], out[1], out[2], out[3]]) as usize;
@@ -259,12 +302,14 @@ mod tests {
     }
 
     #[test]
-    fn fail_packs_error_meta() {
-        let meta = RespMeta { error: Some("boom".into()), ..Default::default() };
-        let out = pack(&meta, &[]);
-        let len = u32::from_be_bytes([out[0], out[1], out[2], out[3]]) as usize;
-        let m: serde_json::Value = serde_json::from_slice(&out[4..4 + len]).unwrap();
-        assert_eq!(m["error"], "boom");
-        assert_eq!(out.len(), 4 + len);
+    fn fail_packs_error_meta_with_kind() {
+        for (msg, kind) in [(MSG_TIMEOUT, "timeout"), (MSG_CANCELLED, "cancelled"), ("dns error: no record", "network")] {
+            let out = pack(&error_meta(msg.to_string()), &[]);
+            let len = u32::from_be_bytes([out[0], out[1], out[2], out[3]]) as usize;
+            let m: serde_json::Value = serde_json::from_slice(&out[4..4 + len]).unwrap();
+            assert_eq!(m["error"], msg);
+            assert_eq!(m["errorKind"], kind);
+            assert_eq!(out.len(), 4 + len, "error packets carry no body");
+        }
     }
 }

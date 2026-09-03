@@ -1469,6 +1469,8 @@ function b64FromBytes(bytes) {
 
 // RFC 7578: percent-encode the characters that would break a quoted field name
 const mpQuote = (str) => String(str).replace(/["\r\n]/g, (m) => encodeURIComponent(m));
+// the browser's multipart serializer CRLF-normalizes names and text values first
+const crlf = (str) => String(str).replace(/\r\n|\r|\n/g, "\r\n");
 
 // Turn whatever fetch() would have sent into raw bytes for the native engine.
 // Multipart bodies are assembled here, since there is no browser to do it.
@@ -1479,11 +1481,11 @@ async function bodyToBytes(body) {
     const boundary = "----WhisperFormBoundary" + uid() + uid();
     const parts = [];
     for (const [name, value] of body.entries()) {
-      parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${mpQuote(name)}"`);
+      parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${mpQuote(crlf(name))}"`);
       if (value instanceof Blob) {
         parts.push(`; filename="${mpQuote(value.name || "blob")}"\r\nContent-Type: ${value.type || "application/octet-stream"}\r\n\r\n`, value, "\r\n");
       } else {
-        parts.push(`\r\n\r\n${value}\r\n`);
+        parts.push(`\r\n\r\n${crlf(value)}\r\n`);
       }
     }
     parts.push(`--${boundary}--\r\n`);
@@ -1525,7 +1527,7 @@ async function sendViaTauri(r, body, signal) {
         url: r.url,
         method: r.method,
         headers,
-        timeoutMs: Math.max(0, (Number(state.settings.timeoutSec) || 0) * 1000),
+        timeoutMs: Math.round(Math.max(0, (Number(state.settings.timeoutSec) || 0) * 1000)),
       },
       bodyB64: bytes ? b64FromBytes(bytes) : null,
     });
@@ -1534,10 +1536,15 @@ async function sendViaTauri(r, body, signal) {
   } finally {
     signal.removeEventListener("abort", onAbort);
   }
+  if (signal.aborted) throw new Error("Request cancelled.");
   if (!(buf instanceof ArrayBuffer)) buf = new Uint8Array(buf).buffer;
   const metaLen = new DataView(buf).getUint32(0);
   const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, metaLen)));
-  if (meta.error) throw new Error(meta.error);
+  if (meta.error) {
+    const err = new Error(meta.error);
+    err.kind = meta.errorKind;   // "timeout" | "cancelled" | "network"
+    throw err;
+  }
   const bodyBytes = new Uint8Array(buf, 4 + metaLen);
   const headersList = Array.isArray(meta.headers) ? meta.headers : [];
   const ctPair = headersList.find(p => p[0].toLowerCase() === "content-type");
@@ -1665,18 +1672,23 @@ async function sendRequest() {
   } catch (err) {
     const durationMs = performance.now() - t0;
     const reason = controller.signal.aborted ? (controller.signal.reason || "cancelled") : null;
+    // the abort reason wins; otherwise trust the engine's own classification
+    const kind = reason === "timeout" ? "timeout"
+      : reason ? "cancelled"
+      : (err && (err.kind === "timeout" || err.kind === "cancelled")) ? err.kind
+      : "network";
     if (isCurrent()) {
       releaseResponse(tab.response);
       tab.response = {
         error: {
-          kind: reason === "timeout" ? "timeout" : reason ? "cancelled" : "network",
+          kind,
           message: err && err.message ? err.message : String(err),
         },
         durationMs,
         engine: viaNative ? "native" : "browser",
         requestUrl: r.url,
       };
-      if (!reason) pushHistory(tab, { status: 0, durationMs });
+      if (kind === "network") pushHistory(tab, { status: 0, durationMs });
     }
   } finally {
     if (timer) clearTimeout(timer);
